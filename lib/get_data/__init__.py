@@ -4,7 +4,6 @@ Created on Tue Oct 10 16:40:14 2023
 
 @author: awei
 """
-
 import sys
 import os
 
@@ -14,3 +13,7 @@ current_directory = os.getcwd()
 parent_directory = os.path.dirname(current_directory)  # 上一级目录
 path = os.path.dirname(parent_directory)  # 上两级目录
 sys.path.append(parent_directory)
+
+# from data_loading import data_loading
+if __name__ == '__main__':
+    print(sys.path)

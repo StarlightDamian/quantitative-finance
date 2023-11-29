@@ -7,12 +7,13 @@ Created on Thu Aug 24 15:19:08 2023
 """
 
 import pandas as pd
-path = 'C:/Users/awei/Desktop/github/quantitative-finance'
+path = 'E:/3_software_engineering/github/quantitative-finance'
 
 def _apply_data_distribution_day(substring_pd):
     year_month_day = substring_pd['date'].values[0]
-    year, month, day = year_month_day[:4], year_month_day[5: 7], year_month_day[8:]
-    substring_pd.reset_index().to_feather(f'{path}/data/day/{year}_{month}_{day}.feather')
+    #year, month, day = year_month_day[:4], year_month_day[5: 7], year_month_day[8:]
+    #substring_pd.reset_index().to_feather(f'{path}/data/day/{year}_{month}_{day}.feather')
+    substring_pd.reset_index().to_feather(f'{path}/data/day/{year_month_day}.feather')
     
 def data_distribution_day(data_day_all):
     data_day_all.groupby('date').apply(_apply_data_distribution_day)  # 按日

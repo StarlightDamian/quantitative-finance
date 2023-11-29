@@ -3,8 +3,8 @@
 Created on Tue Oct 10 17:38:05 2023
 
 @author: awei
-应用层_蒙特卡洛方法_模拟交易
-application_monte_carlo
+应用层_lightgbm_模拟交易
+application_lightgbm
 
 industry = array(['银行', nan, '交通运输', '汽车', '房地产', '公用事业', '钢铁', '化工', '非银金融', '机械设备',
        '传媒', '国防军工', '建筑装饰', '通信', '综合', '休闲服务', '医药生物', '商业贸易', '食品饮料',
@@ -13,10 +13,10 @@ industry = array(['银行', nan, '交通运输', '汽车', '房地产', '公用�
 """
 import argparse
 import pandas as pd
-#from base import base_data_loading
-
 
 from __init__ import path
+from get_data import data_loading
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -28,4 +28,15 @@ if __name__ == '__main__':
     plate_df = stock_industry_df[stock_industry_df.industry.isin(['计算机'])]
     
     # day_df
+    feather_df = data_loading.feather_file_merge(args.date_start, args.date_end)
+    print(feather_df)
     
+    # 用指定行业回测
+    industry_df = feather_df[feather_df.code.isin(plate_df.code)]
+    
+    #industry_df
+    
+    
+    industry_df[industry_df.code == 'sh.600100']
+    
+    # transaction_order_df = 

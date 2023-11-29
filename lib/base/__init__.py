@@ -14,8 +14,8 @@ parent_directory = os.path.dirname(current_directory)  # 上一级目录
 path = os.path.dirname(parent_directory)  # 上两级目录
 sys.path.append(parent_directory)
 sys.path.append(path)
-from base import base_data_loading
 
+from base import base_utils
 
 if __name__ == '__main__':
     print(path)
