@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct 10 16:04:15 2023
+Created on Tue Oct 10 16:40:14 2023
 
 @author: awei
 """
@@ -11,14 +11,11 @@ import os
 current_directory = os.getcwd()
 # 构建上两级目录的路径
 parent_directory = os.path.dirname(current_directory)  # 上一级目录
+path = os.path.dirname(parent_directory)  # 上两级目录
 if parent_directory not in sys.path:
     sys.path.append(parent_directory)
 
-path = os.path.dirname(parent_directory)  # 上两级目录
-if path not in sys.path:
-    sys.path.append(path)
-
-from base import base_utils
+from backtesting import backtesting_main
 
 if __name__ == '__main__':
-    print(path)
+    print(sys.path)

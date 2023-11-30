@@ -13,4 +13,5 @@ current_directory = os.getcwd()
 # 构建上两级目录的路径
 parent_directory = os.path.dirname(current_directory)  # 上一级目录
 path = os.path.dirname(parent_directory)  # 上两级目录
-sys.path.append(parent_directory)
+if parent_directory not in sys.path:
+    sys.path.append(parent_directory)
