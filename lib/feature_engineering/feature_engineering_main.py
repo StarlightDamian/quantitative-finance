@@ -19,9 +19,10 @@ from get_data import data_loading, data_plate
 pd.options.mode.chained_assignment = None
 
 class PerformFeatureEngineering:
-    def __init__(self):
+    def __init__(self, check=False):
         """
         初始化函数，用于登录系统和加载行业分类数据
+        :param check:是否检修中间层date_range_data
         """
         try:
             bs.login()  # 登陆系统
@@ -39,7 +40,7 @@ class PerformFeatureEngineering:
         
         self.one_hot_encoder = OneHotEncoder(sparse=False)
         self.target_names = ['rearHigh', 'rearLow']
-        
+        self.check = check
     def specified_trading_day(self, pre_date_num=1):
         """
         获取指定交易日的字典，用于预测日期的计算
@@ -71,7 +72,7 @@ class PerformFeatureEngineering:
         # print(date_range_data[date_range_data.code=='sz.399997'][['date','rearDate','high','rearHigh']]) #观察数据
         return date_range_data
     
-    def build_dataset(self, date_range_data, check=False):
+    def build_dataset(self, date_range_data):
         """
         构建数据集，将DataFrame转换为Bunch
         :param date_range_data: 包含日期范围的DataFrame
@@ -88,13 +89,15 @@ class PerformFeatureEngineering:
         # lightgbm不支持str格式，把行业类别转化为ont-hot
         one_hot_industry_array = self.one_hot_encoder.fit_transform(date_range_data[['industry']])
         one_hot_columns_list = self.one_hot_encoder.get_feature_names_out(['industry']).tolist()
-        # print('one_hot_columns_list',one_hot_columns_list)
+        #print('one_hot_columns_list',one_hot_columns_list)
         one_hot_industry_df = pd.DataFrame(one_hot_industry_array, columns=one_hot_columns_list)
         date_range_data = pd.concat([date_range_data, one_hot_industry_df], axis=1)
         
         feature_names = ['dateDiff', 'open', 'high', 'low', 'close', 'volume', 'amount', 'turn', 'tradestatus', 'pctChg', 'isST']  + one_hot_columns_list
         feature_df = date_range_data[feature_names]
-        feature_int_columns = ['tradestatus', 'isST'] + one_hot_columns_list
+        
+        feature_int_columns = ['dateDiff', 'tradestatus', 'isST'] + one_hot_columns_list
+        feature_df.loc[feature_df.isST=='', :]='0' # 600万数据存在13万数据isST==''
         feature_df[feature_int_columns] = feature_df[feature_int_columns].astype(int)
         feature_df[['open', 'high', 'low', 'close']] = feature_df[['open', 'high', 'low', 'close']].astype(float)
         
@@ -110,7 +113,7 @@ class PerformFeatureEngineering:
         target_df = date_range_data[self.target_names]  # 机器学习预测值
         target_df[['rearHigh', 'rearLow']] = target_df[['rearHigh', 'rearLow']].astype(float)
         
-        if check==True:
+        if self.check==True:
             return date_range_data, feature_df
         
         # 最高价格数据集
@@ -130,7 +133,7 @@ class PerformFeatureEngineering:
         date_range_low_bunch = Bunch(**date_range_low_dict)
         return date_range_high_bunch, date_range_low_bunch
     
-    def feature_engineering_pipline(self, date_range_data, check=False):
+    def feature_engineering_pipline(self, date_range_data):
         """
         特征工程的主要流程，包括指定交易日、创建待预测值、构建数据集
         :param date_range_data: 包含日期范围的DataFrame
@@ -141,13 +144,13 @@ class PerformFeatureEngineering:
         date_range_data = self.create_values_to_predicted(date_range_data)
 
         # 构建数据集
-        date_range_high_bunch, date_range_low_bunch = self.build_dataset(date_range_data, check)
+        date_range_high_bunch, date_range_low_bunch = self.build_dataset(date_range_data)
         return date_range_high_bunch, date_range_low_bunch
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2023-01-01', help='进行回测的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-02-01', help='进行回测的结束时间')
+    parser.add_argument('--date_start', type=str, default='2017-02-01', help='进行回测的起始时间')
+    parser.add_argument('--date_end', type=str, default='2023-08-08', help='进行回测的结束时间')
     args = parser.parse_args()
     
     print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
@@ -157,10 +160,18 @@ if __name__ == '__main__':
     print(date_range_data)
     
     # 特征工程
-    perform_feature_engineering = PerformFeatureEngineering()
-    check = True  # False,是否检修
+    check = True
+    perform_feature_engineering = PerformFeatureEngineering(check=check)# False,是否检修
     if check==True:
-        date_range_data, feature_df = perform_feature_engineering.feature_engineering_pipline(date_range_data, check=check)
+        date_range_data, feature_df = perform_feature_engineering.feature_engineering_pipline(date_range_data)
     else:
         date_range_high_bunch, date_range_low_bunch = perform_feature_engineering.feature_engineering_pipline(date_range_data)
         print(date_range_high_bunch, date_range_low_bunch)
+        
+# =============================================================================
+# for one_hot_columns_1 in one_hot_columns_list:
+#     df = feature_df1[feature_df1[one_hot_columns_1]=='']
+#     if not df.empty:
+#         print(one_hot_columns_1, df)
+#         
+# =============================================================================
