@@ -21,7 +21,7 @@ class StockPredictionModel:
         self.model = None
 
     def feature_engineering_pipline(self, date_range_data):
-        date_range_high_bunch, date_range_low_bunch = self.perform_feature_engineering.feature_engineering_pipline(date_range_data)
+        date_range_high_bunch, date_range_low_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
         x, y = date_range_high_bunch.data, date_range_high_bunch.target
         x_df = pd.DataFrame(x, columns=date_range_high_bunch.feature_names)
         x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=0.15)
@@ -35,7 +35,7 @@ class StockPredictionModel:
             'objective': 'regression',
             'num_leaves': 10,
             'learning_rate': 0.05,
-            'metric': ['l2', 'l1'],
+            'metric': ['mae', 'root_mean_squared_error'],
             'verbose': -1,
         }
 
@@ -55,6 +55,16 @@ class StockPredictionModel:
         mae = mean_absolute_error(y_test, y_pred)
         print("RMSE: %.2f" % rmse)
         print("MAE: %.2f" % mae)
+        
+        result_y = pd.DataFrame([y_test,y_pred]).T.rename(columns={0: '明天_最高价_百分比_真实值', 1: '明天_最高价_百分比_预测值'})
+        result_x = x_test[['high', 'low', 'close']].rename(columns={'high': '最高价', 'low': '最低价', 'close': '今收盘价'})
+        #result_x.loc[:, '备注'] = '封板'
+        result_x['备注'] = result_x.apply(lambda row: '封板' if row['最高价'] == row['最低价'] else '', axis=1)#, inplace=True
+        
+        result_x = result_x.reset_index(drop=True)
+        result_check = pd.concat([result_y, result_x], axis=1)
+        print(result_check)
+        result_check.to_csv(f'{path}/data/result_check.csv')
         
         return rmse, mae
 

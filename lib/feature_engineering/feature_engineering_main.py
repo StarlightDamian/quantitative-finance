@@ -19,7 +19,7 @@ from get_data import data_loading, data_plate
 pd.options.mode.chained_assignment = None
 
 class PerformFeatureEngineering:
-    def __init__(self, check=False):
+    def __init__(self):
         """
         初始化函数，用于登录系统和加载行业分类数据
         :param check:是否检修中间层date_range_data
@@ -29,7 +29,7 @@ class PerformFeatureEngineering:
             trading_day_df = data_plate.get_base_data(data_type='交易日')# 交易日数据
             self.trading_day_df = trading_day_df[trading_day_df.is_trading_day=='1']
         except Exception as e:
-            print(f"An error occurred: {e}")
+            print(f"登录获取交易日数据异常: {e}")
         finally:
             bs.logout()  # 登出系统
         
@@ -39,8 +39,8 @@ class PerformFeatureEngineering:
         self.code_and_industry_dict = stock_industry.set_index('code')['industry'].to_dict()
         
         self.one_hot_encoder = OneHotEncoder(sparse=False)
-        self.target_names = ['rearHigh', 'rearLow']
-        self.check = check
+        self.target_names = ['rearHighPercentage', 'rearLowPercentage']
+        
     def specified_trading_day(self, pre_date_num=1):
         """
         获取指定交易日的字典，用于预测日期的计算
@@ -70,9 +70,10 @@ class PerformFeatureEngineering:
         # 关联对应后置最低最高价格
         date_range_data = pd.merge(date_range_data, predict_pd, on='primaryKey')
         # print(date_range_data[date_range_data.code=='sz.399997'][['date','rearDate','high','rearHigh']]) #观察数据
+        
         return date_range_data
     
-    def build_dataset(self, date_range_data):
+    def build_features(self, date_range_data):
         """
         构建数据集，将DataFrame转换为Bunch
         :param date_range_data: 包含日期范围的DataFrame
@@ -93,13 +94,13 @@ class PerformFeatureEngineering:
         one_hot_industry_df = pd.DataFrame(one_hot_industry_array, columns=one_hot_columns_list)
         date_range_data = pd.concat([date_range_data, one_hot_industry_df], axis=1)
         
+        feature_int_columns = ['dateDiff', 'tradestatus', 'isST'] + one_hot_columns_list
+        date_range_data.loc[date_range_data.isST=='', :]='0' # 600万数据存在13万数据isST==''
+        date_range_data[feature_int_columns] = date_range_data[feature_int_columns].astype(int)
+        date_range_data[['open', 'high', 'low', 'close']] = date_range_data[['open', 'high', 'low', 'close']].astype(float)
+        
         feature_names = ['dateDiff', 'open', 'high', 'low', 'close', 'volume', 'amount', 'turn', 'tradestatus', 'pctChg', 'isST']  + one_hot_columns_list
         feature_df = date_range_data[feature_names]
-        
-        feature_int_columns = ['dateDiff', 'tradestatus', 'isST'] + one_hot_columns_list
-        feature_df.loc[feature_df.isST=='', :]='0' # 600万数据存在13万数据isST==''
-        feature_df[feature_int_columns] = feature_df[feature_int_columns].astype(int)
-        feature_df[['open', 'high', 'low', 'close']] = feature_df[['open', 'high', 'low', 'close']].astype(float)
         
         # volume中有异常值
         feature_df.loc[:, ['volume']] = pd.to_numeric(feature_df['volume'], errors='coerce', downcast='integer')  # 使用pd.to_numeric进行转换，将错误的值替换为 NaN
@@ -110,16 +111,22 @@ class PerformFeatureEngineering:
         feature_df.loc[:, fields_to_convert] = feature_df[fields_to_convert].apply(pd.to_numeric, errors='coerce')  # 使用apply函数对每个字段进行处理
         feature_df[fields_to_convert] = feature_df[fields_to_convert].fillna(0).astype(float)  # 将 NaN 值填充为 0 或其他合适的值
         
+        date_range_data[['rearHigh', 'rearLow']] = date_range_data[['rearHigh', 'rearLow']].astype(float)
+        
+        # 明日最高值相对于今日收盘价的涨跌幅
+        date_range_data['rearHighPercentage'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rearLowPercentage'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
+        
         target_df = date_range_data[self.target_names]  # 机器学习预测值
-        target_df[['rearHigh', 'rearLow']] = target_df[['rearHigh', 'rearLow']].astype(float)
+        return date_range_data, feature_df, target_df, feature_names
         
-        if self.check==True:
-            return date_range_data, feature_df
-        
+
+    
+    def build_dataset(self, feature_df, target_df, feature_names):
         # 最高价格数据集
         date_range_high_dict = {'data': np.array(feature_df.to_records(index=False)),  # 不使用 feature_df.values,使用结构化数组保存每一列的类型
                          'feature_names': feature_names,
-                         'target': target_df.rearHigh.values,
+                         'target': target_df['rearHighPercentage'].values,
                          'target_names': [self.target_names[0]],
                          }
         date_range_high_bunch = Bunch(**date_range_high_dict)
@@ -127,7 +134,7 @@ class PerformFeatureEngineering:
         # 最低价格数据集
         date_range_low_dict = {'data': np.array(feature_df.to_records(index=False)),
                          'feature_names': feature_names,
-                         'target': target_df.rearLow.values,
+                         'target': target_df['rearLowPercentage'].values,
                          'target_names': [self.target_names[1]],
                          }
         date_range_low_bunch = Bunch(**date_range_low_dict)
@@ -142,15 +149,28 @@ class PerformFeatureEngineering:
         trading_day_target_dict = self.specified_trading_day(pre_date_num=1)
         date_range_data['targetDate'] = date_range_data.date.map(trading_day_target_dict)
         date_range_data = self.create_values_to_predicted(date_range_data)
-
+        
         # 构建数据集
-        date_range_high_bunch, date_range_low_bunch = self.build_dataset(date_range_data)
+        date_range_data, feature_df, target_df, feature_names = self.build_features(date_range_data)
+        #date_range_high_bunch, date_range_low_bunch = self.build_dataset(feature_df, target_df, feature_names)
+        return date_range_data, feature_df, target_df, feature_names
+    
+    def feature_engineering_dataset_pipline(self, date_range_data):
+        """
+        特征工程的主要流程，包括指定交易日、创建待预测值、构建数据集
+        :param date_range_data: 包含日期范围的DataFrame
+        :return: 包含数据集的Bunch
+        """
+        # 构建数据集
+        date_range_data, feature_df, target_df, feature_names= self.feature_engineering_pipline(date_range_data)
+        date_range_high_bunch, date_range_low_bunch = self.build_dataset(feature_df, target_df, feature_names)
         return date_range_high_bunch, date_range_low_bunch
+        
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2017-02-01', help='进行回测的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-08-08', help='进行回测的结束时间')
+    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行回测的起始时间')
+    parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行回测的结束时间')
     args = parser.parse_args()
     
     print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
@@ -160,14 +180,14 @@ if __name__ == '__main__':
     print(date_range_data)
     
     # 特征工程
-    check = True
-    perform_feature_engineering = PerformFeatureEngineering(check=check)# False,是否检修
-    if check==True:
-        date_range_data, feature_df = perform_feature_engineering.feature_engineering_pipline(date_range_data)
-    else:
-        date_range_high_bunch, date_range_low_bunch = perform_feature_engineering.feature_engineering_pipline(date_range_data)
-        print(date_range_high_bunch, date_range_low_bunch)
-        
+    perform_feature_engineering = PerformFeatureEngineering()
+    
+    # 特征工程结果
+    date_range_data, feature_df, target_df, feature_names = perform_feature_engineering.feature_engineering_pipline(date_range_data)
+    
+    #date_range_high_bunch, date_range_low_bunch = perform_feature_engineering.feature_engineering_pipline(date_range_data)
+    #print(date_range_high_bunch, date_range_low_bunch)
+    
 # =============================================================================
 # for one_hot_columns_1 in one_hot_columns_list:
 #     df = feature_df1[feature_df1[one_hot_columns_1]=='']
