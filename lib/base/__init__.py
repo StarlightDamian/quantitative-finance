@@ -18,7 +18,9 @@ path = os.path.dirname(parent_directory)  # 上两级目录
 if path not in sys.path:
     sys.path.append(path)
 
+from base import base_arguments
 from base import base_utils
 
 if __name__ == '__main__':
     print(path)
+    

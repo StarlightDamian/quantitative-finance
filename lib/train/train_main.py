@@ -5,7 +5,9 @@ Created on Thu Aug 24 16:04:00 2023
 @author: awei
 """
 import argparse
+from sqlalchemy import create_engine
 
+import matplotlib.pyplot as plt
 import lightgbm as lgb
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -14,13 +16,30 @@ from sklearn.model_selection import train_test_split
 from __init__ import path
 from get_data import data_loading #, data_plate 
 from feature_engineering import feature_engineering_main
+from base import base_connect_database
+
+# Constants
+MODEL_PATH = f'{path}/checkpoint/prediction_stock_model.txt'
+PREDICTION_PRICE_OUTPUT_CSV_PATH = f'{path}/data/prediction_stock_price.csv'
+TABLE_NAME = 'prediction_stock_price'
+
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+
 
 class StockPredictionModel:
     def __init__(self):
+        """
+        Initialize StockPredictionModel object, including feature engineering and database connection.
+        """
         self.perform_feature_engineering = feature_engineering_main.PerformFeatureEngineering()
         self.model = None
-
+        self.conn = base_connect_database.engine_conn('postgre')
+        
     def feature_engineering_pipline(self, date_range_data):
+        """
+        Execute feature engineering pipeline and return datasets for training and testing.
+        """
         date_range_high_bunch, date_range_low_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
         x, y = date_range_high_bunch.data, date_range_high_bunch.target
         x_df = pd.DataFrame(x, columns=date_range_high_bunch.feature_names)
@@ -28,15 +47,17 @@ class StockPredictionModel:
         return x_train, x_test, y_train, y_test
 
     def train_model(self, x_train, y_train):
-        # defining parameters
+        """
+        Train LightGBM model.
+        """
         params = {
             'task': 'train',
             'boosting': 'gbdt',
             'objective': 'regression',
-            'num_leaves': 10,
+            'num_leaves': 10, # 决策树上的叶子节点的数量，控制树的复杂度
             'learning_rate': 0.05,
-            'metric': ['mae', 'root_mean_squared_error'],
-            'verbose': -1,
+            'metric': ['mae', 'root_mean_squared_error'], # 模型通过mae进行优化, root_mean_squared_error进行评估。
+            'verbose': -1, # 控制输出信息的详细程度，-1 表示不输出任何信息
         }
 
         # loading data
@@ -45,8 +66,22 @@ class StockPredictionModel:
         # fitting the model
         self.model = lgb.train(params, train_set=lgb_train)
 
+    def evaluate_model2(self, lgb_train, params):
+        # 通过训练模型本身的参数输出对应的评估指标
+        # Use cross-validation to obtain evaluation results
+        cv_results = lgb.cv(params, lgb_train, nfold=5, metrics=params['metric'], verbose_eval=False)
+
+        # Output the results
+        for metric in params['metric']:
+            avg_metric = f'average {metric} across folds'
+            print(f"{avg_metric}: {cv_results[f'{metric}-mean'][-1]:.2f} ± {cv_results[f'{metric}-stdv'][-1]:.2f}")
+
+        return cv_results
+
     def evaluate_model(self, x_test, y_test):
-        # prediction
+        """
+        Evaluate model performance, calculate RMSE and MAE, output results to the database, and return DataFrame.
+        """
         y_pred = self.model.predict(x_test)
 
         # accuracy check
@@ -56,28 +91,35 @@ class StockPredictionModel:
         print("RMSE: %.2f" % rmse)
         print("MAE: %.2f" % mae)
         
-        result_y = pd.DataFrame([y_test,y_pred]).T.rename(columns={0: '明天_最高价_百分比_真实值', 1: '明天_最高价_百分比_预测值'})
-        result_x = x_test[['high', 'low', 'close']].rename(columns={'high': '最高价', 'low': '最低价', 'close': '今收盘价'})
-        #result_x.loc[:, '备注'] = '封板'
-        result_x['备注'] = result_x.apply(lambda row: '封板' if row['最高价'] == row['最低价'] else '', axis=1)#, inplace=True
+        y_result = pd.DataFrame([y_test,y_pred]).T.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'}).astype(float).round(3)
+        x_test['remarks'] = x_test.apply(lambda row: '封板' if row['high'] == row['low'] else '', axis=1)
+        x_test = x_test.reset_index(drop=True)
+        prediction_stock_price  = pd.concat([y_result, x_test], axis=1)
+        print(prediction_stock_price)
         
-        result_x = result_x.reset_index(drop=True)
-        result_check = pd.concat([result_y, result_x], axis=1)
-        print(result_check)
-        result_check.to_csv(f'{path}/data/result_check.csv')
+        prediction_stock_price = prediction_stock_price[['rearHighPctChgReal', 'rearHighPctChgPred', 'open',
+                                                         'high', 'low', 'close', 'volume', 'amount',
+                                                         'turn', 'pctChg', 'isST', 'remarks']]
+        prediction_stock_price.to_sql(TABLE_NAME, con=self.conn, index=False, if_exists='replace')  # 输出到数据库
         
-        return rmse, mae
+        return prediction_stock_price, rmse, mae
 
     def save_model(self, model_path):
-        # Save the model to a file
+        """
+        Save trained model to the specified path.
+        """
         self.model.save_model(model_path)
 
     def load_model(self, model_path):
-        # Load the model from a file
+        """
+        Load model from the specified path.
+        """
         self.model = lgb.Booster(model_file=model_path)
 
     def plot_feature_importance(self):
-        # Plot feature importance
+        """
+        Plot feature importance.
+        """
         lgb.plot_importance(self.model, importance_type='split', figsize=(10, 6), title='Feature importance (split)')
         lgb.plot_importance(self.model, importance_type='gain', figsize=(10, 6), title='Feature importance (gain)')
 
@@ -88,117 +130,42 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
-
-    # 获取日期段数据
+    
+    # Load date range data
     date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
 
     stock_model = StockPredictionModel()
 
     x_train, x_test, y_train, y_test = stock_model.feature_engineering_pipline(date_range_data)
     stock_model.train_model(x_train, y_train)
-    stock_model.evaluate_model(x_test, y_test)
-
-    # Save the model
-    model_path = f'{path}/checkpoint/stock_prediction_model.txt'
-    stock_model.save_model(model_path)
-
-    # Load the model
-    stock_model.load_model(model_path)
+    prediction_stock_price, rmse, mae = stock_model.evaluate_model(x_test, y_test)
+    
+    # Rename and save to CSV file
+    prediction_stock_price = prediction_stock_price.rename(columns={'open': '今开盘价格',
+                                                                     'high': '最高价',
+                                                                     'low': '最低价',
+                                                                     'close': '今收盘价',
+                                                                     'volume': '成交数量',
+                                                                     'amount': '成交金额',
+                                                                     'turn': '换手率',
+                                                                     'pctChg': '涨跌幅',
+                                                                     'rearHighPctChgReal': '明天_最高价幅_真实值',
+                                                                     'rearHighPctChgPred': '明天_最高价幅_预测值',
+                                                                     'isST': '是否ST',
+                                                                     'remarks': '备注',
+                                                                     })
+    prediction_stock_price.to_csv(f'{path}/data/{PREDICTION_PRICE_OUTPUT_CSV_PATH}.csv', index=False)
+    
+    # Save and load model
+    stock_model.save_model(MODEL_PATH)
+    #stock_model.load_model(MODEL_PATH)
 
     # Plot feature importance
     stock_model.plot_feature_importance()
 
 
 #w×RMSE+(1−w)×MAE
-# =============================================================================
-# import argparse
-# 
-# import lightgbm as lgb
-# import pandas as pd
-# from sklearn.metrics import mean_squared_error
-# from sklearn.model_selection import train_test_split
-# from sklearn.metrics import mean_absolute_error
-# 
-# from __init__ import path
-# from get_data import data_loading, data_plate 
-# from feature_engineering import feature_engineering_main
-# 
-# class BuildTrainingProcess:
-#     def __init__(self):
-#         self.perform_feature_engineering = feature_engineering_main.PerformFeatureEngineering()
-#         
-#     def train_pipline(self, date_range_data):
-#         date_range_high_bunch, date_range_low_bunch = self.perform_feature_engineering.feature_engineering_pipline(date_range_data) # 特征工程
-#         
-#         
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#     # parser.add_argument('--date_start', type=str, default='2017-02-01', help='进行回测的起始时间')
-#     parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行回测的起始时间')
-#     parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行回测的结束时间')
-#     args = parser.parse_args()
-#     
-#     print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
-#     
-#     # 获取日期段数据
-#     date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
-#     # print(date_range_data)
-#     
-#     #build_training_process = BuildTrainingProcess()
-#     #build_training_process.train_pipline(date_range_data)
-# 
-#     
-#     # print(date_range_high_bunch)
-#     perform_feature_engineering = feature_engineering_main.PerformFeatureEngineering()
-#     date_range_high_bunch, date_range_low_bunch = perform_feature_engineering.feature_engineering_pipline(date_range_data) # 特征工程
-#     x, y = date_range_high_bunch.data, date_range_high_bunch.target
-#     x_df = pd.DataFrame(x, columns= date_range_high_bunch.feature_names)
-#     x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=0.15)
-#     
-#     
-#     # defining parameters
-#     params = {
-#         'task': 'train', # 训练
-#         'boosting': 'gbdt', # 梯度提升树
-#         'objective': 'regression', # 回归任务，模型的目标是拟合一个回归函数
-#         'num_leaves': 10, # 决策树上的叶子节点的数量，控制树的复杂度
-#         'learning_rate': 0.05, # 学习率，表示每一步迭代中模型权重的调整幅度，影响模型收敛速度
-#         'metric': ['l2', 'l1'], # 模型评估的指标，这里设置为 L2（均方误差）和 L1（平均绝对误差）
-#         'verbose': -1, # 控制输出信息的详细程度，-1 表示不输出任何信息
-#     }
-# 
-#     # laoding data
-#     lgb_train = lgb.Dataset(x_train, y_train)
-#     lgb_eval = lgb.Dataset(x_test, y_test, reference=lgb_train)
-# 
-# 
-# 
-#     # fitting the model
-#     model = lgb.train(params,
-#                      train_set=lgb_train,
-#                      valid_sets=lgb_eval,
-#                      )#early_stopping_rounds=30
-# 
-#     # prediction
-#     y_pred = model.predict(x_test)
-# 
-#     # accuracy check
-#     mse = mean_squared_error(y_test, y_pred)
-#     rmse = mse**(0.5)
-#     mae = mean_absolute_error(y_test, y_pred)
-#     print("RMSE: %.2f" % rmse)  
-#     print("MAE: %.2f" % mae)
-#     
-#     
-#     result_y = pd.DataFrame([y_test,y_pred]).T.rename(columns={0: '明天_最高价_真实值', 1: '明天_最高价_预测值'})
-#     result_x = x_test[['high', 'low', 'close']].rename(columns={'high': '最高价', 'low': '最低价', 'close': '今收盘价'})
-#     result_x = result_x.reset_index(drop=True)
-#     result_check = pd.concat([result_y, result_x], axis=1)
-#     print(result_check)
-#     result_check.to_csv(f'{path}/data/result_check.csv')
-# =============================================================================
-    
-    
+
 # =============================================================================
 #     Index(['dateDiff', 'open', 'high', 'low', 'close', 'volume', 'amount', 'turn',
 #            'tradestatus', 'pctChg', 'isST', 'industry_交通运输', 'industry_休闲服务',

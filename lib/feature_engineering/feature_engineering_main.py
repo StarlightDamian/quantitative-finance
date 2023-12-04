@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Wed Nov 29 17:07:09 2023
-
+sparse
 @author: awei
 特征工程主程序
 feature_engineering_main
@@ -15,7 +15,7 @@ import baostock as bs
 
 from __init__ import path
 from get_data import data_loading, data_plate
-
+from base import base_connect_database
 pd.options.mode.chained_assignment = None
 
 class PerformFeatureEngineering:
@@ -25,21 +25,20 @@ class PerformFeatureEngineering:
         :param check:是否检修中间层date_range_data
         """
         try:
-            bs.login()  # 登陆系统
-            trading_day_df = data_plate.get_base_data(data_type='交易日')# 交易日数据
-            self.trading_day_df = trading_day_df[trading_day_df.is_trading_day=='1']
+            conn_pg = base_connect_database.engine_conn('postgre')
         except Exception as e:
-            print(f"登录获取交易日数据异常: {e}")
-        finally:
-            bs.logout()  # 登出系统
+            print(f"数据库获取数据异常: {e}")
+        
+        trading_day_df = pd.read_sql('trade_datas', con=conn_pg.engine)
+        self.trading_day_df = trading_day_df[trading_day_df.is_trading_day=='1']
         
         # 行业分类数据
-        stock_industry = pd.read_csv(f'{path}/data/stock_industry.csv', encoding='gb18030')
+        stock_industry = pd.read_sql('stock_industry', con=conn_pg.engine)
         #stock_industry.loc[stock_industry.industry.isnull(), 'industry'] = '其他' # 不能在这步补全，《行业分类数据》不够完整会导致industry为nan
         self.code_and_industry_dict = stock_industry.set_index('code')['industry'].to_dict()
         
-        self.one_hot_encoder = OneHotEncoder(sparse=False)
-        self.target_names = ['rearHighPercentage', 'rearLowPercentage']
+        self.one_hot_encoder = OneHotEncoder(sparse_output=False)
+        self.target_names = ['rearHighPctChgPred', 'rearLowPctChgPred']
         
     def specified_trading_day(self, pre_date_num=1):
         """
@@ -95,7 +94,7 @@ class PerformFeatureEngineering:
         date_range_data = pd.concat([date_range_data, one_hot_industry_df], axis=1)
         
         feature_int_columns = ['dateDiff', 'tradestatus', 'isST'] + one_hot_columns_list
-        date_range_data.loc[date_range_data.isST=='', :]='0' # 600万数据存在13万数据isST==''
+        date_range_data.loc[date_range_data.isST=='', :] = 0 # 600万数据存在13万数据isST==''
         date_range_data[feature_int_columns] = date_range_data[feature_int_columns].astype(int)
         date_range_data[['open', 'high', 'low', 'close']] = date_range_data[['open', 'high', 'low', 'close']].astype(float)
         
@@ -114,19 +113,17 @@ class PerformFeatureEngineering:
         date_range_data[['rearHigh', 'rearLow']] = date_range_data[['rearHigh', 'rearLow']].astype(float)
         
         # 明日最高值相对于今日收盘价的涨跌幅
-        date_range_data['rearHighPercentage'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
-        date_range_data['rearLowPercentage'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rearHighPctChgPred'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rearLowPctChgPred'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
         
         target_df = date_range_data[self.target_names]  # 机器学习预测值
         return date_range_data, feature_df, target_df, feature_names
-        
-
     
     def build_dataset(self, feature_df, target_df, feature_names):
         # 最高价格数据集
         date_range_high_dict = {'data': np.array(feature_df.to_records(index=False)),  # 不使用 feature_df.values,使用结构化数组保存每一列的类型
                          'feature_names': feature_names,
-                         'target': target_df['rearHighPercentage'].values,
+                         'target': target_df[self.target_names[0]].values,
                          'target_names': [self.target_names[0]],
                          }
         date_range_high_bunch = Bunch(**date_range_high_dict)
@@ -134,7 +131,7 @@ class PerformFeatureEngineering:
         # 最低价格数据集
         date_range_low_dict = {'data': np.array(feature_df.to_records(index=False)),
                          'feature_names': feature_names,
-                         'target': target_df['rearLowPercentage'].values,
+                         'target': target_df[self.target_names[1]].values,
                          'target_names': [self.target_names[1]],
                          }
         date_range_low_bunch = Bunch(**date_range_low_dict)
@@ -188,10 +185,4 @@ if __name__ == '__main__':
     #date_range_high_bunch, date_range_low_bunch = perform_feature_engineering.feature_engineering_pipline(date_range_data)
     #print(date_range_high_bunch, date_range_low_bunch)
     
-# =============================================================================
-# for one_hot_columns_1 in one_hot_columns_list:
-#     df = feature_df1[feature_df1[one_hot_columns_1]=='']
-#     if not df.empty:
-#         print(one_hot_columns_1, df)
-#         
-# =============================================================================
+
