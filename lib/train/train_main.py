@@ -7,6 +7,7 @@ Created on Thu Aug 24 16:04:00 2023
 import argparse
 from sqlalchemy import create_engine
 
+import seaborn as sns
 import matplotlib.pyplot as plt
 import lightgbm as lgb
 import pandas as pd
@@ -23,6 +24,9 @@ MODEL_PATH = f'{path}/checkpoint/prediction_stock_model.txt'
 PREDICTION_PRICE_OUTPUT_CSV_PATH = f'{path}/data/prediction_stock_price.csv'
 TABLE_NAME = 'prediction_stock_price'
 
+TEST_SIZE = 0.15 #数据集分割中测试集占比
+SEED = 2023 #保证最大值和最小值的数据部分保持一致
+
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
@@ -34,17 +38,21 @@ class StockPredictionModel:
         """
         self.perform_feature_engineering = feature_engineering_main.PerformFeatureEngineering()
         self.model = None
-        self.conn = base_connect_database.engine_conn('postgre')
         
+    def load_dataset(self, date_range_bunch, test_size=TEST_SIZE, random_state=SEED):
+        x, y = date_range_bunch.data, date_range_bunch.target
+        x_df = pd.DataFrame(x, columns=date_range_bunch.feature_names)
+        x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=test_size, random_state=random_state)
+        return x_train, x_test, y_train, y_test
+    
     def feature_engineering_pipline(self, date_range_data):
         """
         Execute feature engineering pipeline and return datasets for training and testing.
         """
         date_range_high_bunch, date_range_low_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
-        x, y = date_range_high_bunch.data, date_range_high_bunch.target
-        x_df = pd.DataFrame(x, columns=date_range_high_bunch.feature_names)
-        x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=0.15)
-        return x_train, x_test, y_train, y_test
+        x_train, x_test, y_high_train, y_high_test = self.load_dataset(date_range_high_bunch)
+        _, _, y_low_train, y_low_test = self.load_dataset(date_range_low_bunch)
+        return x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test
 
     def train_model(self, x_train, y_train):
         """
@@ -78,31 +86,22 @@ class StockPredictionModel:
 
         return cv_results
 
-    def evaluate_model(self, x_test, y_test):
+    def evaluate_model(self, x_test_eval, y_test_eval):
         """
         Evaluate model performance, calculate RMSE and MAE, output results to the database, and return DataFrame.
         """
-        y_pred = self.model.predict(x_test)
+        y_pred = self.model.predict(x_test_eval)
 
         # accuracy check
-        mse = mean_squared_error(y_test, y_pred)
+        mse = mean_squared_error(y_test_eval, y_pred)
         rmse = mse ** (0.5)
-        mae = mean_absolute_error(y_test, y_pred)
+        mae = mean_absolute_error(y_test_eval, y_pred)
         print("RMSE: %.2f" % rmse)
         print("MAE: %.2f" % mae)
         
-        y_result = pd.DataFrame([y_test,y_pred]).T.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'}).astype(float).round(3)
-        x_test['remarks'] = x_test.apply(lambda row: '封板' if row['high'] == row['low'] else '', axis=1)
-        x_test = x_test.reset_index(drop=True)
-        prediction_stock_price  = pd.concat([y_result, x_test], axis=1)
-        print(prediction_stock_price)
+        y_result = pd.DataFrame([y_test_eval,y_pred]).T.astype(float).round(3)
         
-        prediction_stock_price = prediction_stock_price[['rearHighPctChgReal', 'rearHighPctChgPred', 'open',
-                                                         'high', 'low', 'close', 'volume', 'amount',
-                                                         'turn', 'pctChg', 'isST', 'remarks']]
-        prediction_stock_price.to_sql(TABLE_NAME, con=self.conn, index=False, if_exists='replace')  # 输出到数据库
-        
-        return prediction_stock_price, rmse, mae
+        return y_result, x_test_eval, rmse, mae
 
     def save_model(self, model_path):
         """
@@ -115,13 +114,37 @@ class StockPredictionModel:
         Load model from the specified path.
         """
         self.model = lgb.Booster(model_file=model_path)
-
+        
     def plot_feature_importance(self):
         """
-        Plot feature importance.
+        Plot feature importance using Seaborn.
         """
-        lgb.plot_importance(self.model, importance_type='split', figsize=(10, 6), title='Feature importance (split)')
-        lgb.plot_importance(self.model, importance_type='gain', figsize=(10, 6), title='Feature importance (gain)')
+        feature_importance_split = pd.DataFrame({
+            'Feature': self.model.feature_name(),
+            'Importance': self.model.feature_importance(importance_type='split'),
+            'Type': 'split'
+        })
+        
+        feature_importance_gain = pd.DataFrame({
+            'Feature': self.model.feature_name(),
+            'Importance': self.model.feature_importance(importance_type='gain'),
+            'Type': 'gain'
+        })
+
+        feature_importance = pd.concat([feature_importance_split, feature_importance_gain], ignore_index=True)
+
+        plt.figure(figsize=(12, 6))
+        sns.barplot(x='Importance', y='Feature', data=feature_importance, hue='Type', palette="viridis", dodge=True)
+        plt.title('Feature Importance')
+        plt.show()
+# =============================================================================
+#     def plot_feature_importance(self):
+#         """
+#         Plot feature importance.
+#         """
+#         lgb.plot_importance(self.model, importance_type='split', figsize=(10, 6), title='Feature importance (split)')
+#         lgb.plot_importance(self.model, importance_type='gain', figsize=(10, 6), title='Feature importance (gain)')
+# =============================================================================
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -136,9 +159,27 @@ if __name__ == '__main__':
 
     stock_model = StockPredictionModel()
 
-    x_train, x_test, y_train, y_test = stock_model.feature_engineering_pipline(date_range_data)
-    stock_model.train_model(x_train, y_train)
-    prediction_stock_price, rmse, mae = stock_model.evaluate_model(x_test, y_test)
+    #x_train, x_test, y_train, y_test = stock_model.feature_engineering_pipline(date_range_data)
+    x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test = stock_model.feature_engineering_pipline(date_range_data)
+
+    stock_model.train_model(x_train, y_high_train)
+    y_high, x_high_test, rmse, mae = stock_model.evaluate_model(x_test, y_high_test)
+    y_high = y_high.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'})
+    
+    stock_model.train_model(x_train, y_low_train)
+    y_low, x_low_test, rmse, mae = stock_model.evaluate_model(x_test, y_low_test)
+    y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
+    
+    x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
+    prediction_stock_price  = pd.concat([y_high, y_low, x_high_test], axis=1)
+    
+    prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: '封板' if row['high'] == row['low'] else '', axis=1)
+    prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal',
+                                                     'rearHighPctChgPred', 'open','high', 'low', 'close','volume',
+                                                     'amount','turn', 'pctChg', 'isST', 'remarks']]
+                                                     
+    conn = base_connect_database.engine_conn('postgre')
+    prediction_stock_price.to_sql(TABLE_NAME, con=conn.engine, index=False, if_exists='replace')  # 输出到数据库
     
     # Rename and save to CSV file
     prediction_stock_price = prediction_stock_price.rename(columns={'open': '今开盘价格',
@@ -149,20 +190,22 @@ if __name__ == '__main__':
                                                                      'amount': '成交金额',
                                                                      'turn': '换手率',
                                                                      'pctChg': '涨跌幅',
+                                                                     'rearLowPctChgReal': '明天_最低价幅_真实值',
+                                                                     'rearLowPctChgPred': '明天_最低价幅_预测值',
                                                                      'rearHighPctChgReal': '明天_最高价幅_真实值',
                                                                      'rearHighPctChgPred': '明天_最高价幅_预测值',
                                                                      'isST': '是否ST',
                                                                      'remarks': '备注',
                                                                      })
-    prediction_stock_price.to_csv(f'{path}/data/{PREDICTION_PRICE_OUTPUT_CSV_PATH}.csv', index=False)
+    prediction_stock_price.to_csv(PREDICTION_PRICE_OUTPUT_CSV_PATH, index=False)
     
     # Save and load model
     stock_model.save_model(MODEL_PATH)
     #stock_model.load_model(MODEL_PATH)
 
     # Plot feature importance
+    #stock_model.plot_feature_importance()
     stock_model.plot_feature_importance()
-
 
 #w×RMSE+(1−w)×MAE
 
