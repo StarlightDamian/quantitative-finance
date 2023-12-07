@@ -12,11 +12,6 @@ Created on Fri Feb 18 14:53:45 2022
 4.有时候项目只需要部分类型的包支持指定数据库，如只安装hive和postgre相应的包
 5.不同类型连接的参数不一致，比如hive有'auth'、'auth_mechanism'
 6.支持windows和Linux连接同一类数据库，但是host：post不一致。windows测试，Linux正式
-
-create_engine(if_exists='append')
-'fail'：如果表已经存在，则不执行任何操作，并抛出一个 ValueError。
-'replace'：如果表已经存在，则先删除表，然后重新创建并插入数据。
-'append'：如果表已经存在，则在表的末尾追加数据。
 """
 from urllib import parse
 from sqlalchemy import create_engine
@@ -43,7 +38,7 @@ class DatabaseConnection:
 def engine_conn(type_database):
     """
     功能：连接数据库
-    备注：输出至数据库：to_csv()  if_exists:['append','replace','fail']#追加、删除原表后新增、啥都不干
+    备注：输出至数据库：to_csv()  if_exists:['append','replace','fail']#追加、删除原表后新增、啥都不干抛出一个 ValueError
     """
     print(f"当前数据库：{type_database}")
     user = arg.conf(f'{type_database}_user')

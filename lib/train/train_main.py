@@ -54,6 +54,45 @@ class StockPredictionModel:
         _, _, y_low_train, y_low_test = self.load_dataset(date_range_low_bunch)
         return x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test
 
+    def data_processing_pipline(self, date_range_data):
+        x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test = self.feature_engineering_pipline(date_range_data)
+        stock_model.train_model(x_train, y_high_train)
+        y_high, x_high_test, rmse, mae = stock_model.evaluate_model(x_test, y_high_test)
+        y_high = y_high.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'})
+        
+        stock_model.train_model(x_train, y_low_train)
+        y_low, x_low_test, rmse, mae = stock_model.evaluate_model(x_test, y_low_test)
+        y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
+        
+        x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
+        prediction_stock_price  = pd.concat([y_high, y_low, x_high_test], axis=1)
+        
+        prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: '封板' if row['high'] == row['low'] else '', axis=1)
+        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal',
+                                                         'rearHighPctChgPred', 'open','high', 'low', 'close','volume',
+                                                         'amount','turn', 'pctChg', 'isST', 'remarks']]
+                                                         
+        conn = base_connect_database.engine_conn('postgre')
+        prediction_stock_price.to_sql(TABLE_NAME, con=conn.engine, index=False, if_exists='replace')  # 输出到数据库
+        
+        # Rename and save to CSV file
+        prediction_stock_price = prediction_stock_price.rename(columns={'open': '今开盘价格',
+                                                                         'high': '最高价',
+                                                                         'low': '最低价',
+                                                                         'close': '今收盘价',
+                                                                         'volume': '成交数量',
+                                                                         'amount': '成交金额',
+                                                                         'turn': '换手率',
+                                                                         'pctChg': '涨跌幅',
+                                                                         'rearLowPctChgReal': '明天_最低价幅_真实值',
+                                                                         'rearLowPctChgPred': '明天_最低价幅_预测值',
+                                                                         'rearHighPctChgReal': '明天_最高价幅_真实值',
+                                                                         'rearHighPctChgPred': '明天_最高价幅_预测值',
+                                                                         'isST': '是否ST',
+                                                                         'remarks': '备注',
+                                                                         })
+        return prediction_stock_price
+
     def train_model(self, x_train, y_train):
         """
         Train LightGBM model.
@@ -148,55 +187,17 @@ class StockPredictionModel:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行回测的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行回测的结束时间')
+    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行训练的起始时间')
+    parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行训练的结束时间')
     args = parser.parse_args()
 
-    print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
+    print(f'进行训练的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
     
     # Load date range data
     date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
 
     stock_model = StockPredictionModel()
-
-    #x_train, x_test, y_train, y_test = stock_model.feature_engineering_pipline(date_range_data)
-    x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test = stock_model.feature_engineering_pipline(date_range_data)
-
-    stock_model.train_model(x_train, y_high_train)
-    y_high, x_high_test, rmse, mae = stock_model.evaluate_model(x_test, y_high_test)
-    y_high = y_high.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'})
-    
-    stock_model.train_model(x_train, y_low_train)
-    y_low, x_low_test, rmse, mae = stock_model.evaluate_model(x_test, y_low_test)
-    y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
-    
-    x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
-    prediction_stock_price  = pd.concat([y_high, y_low, x_high_test], axis=1)
-    
-    prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: '封板' if row['high'] == row['low'] else '', axis=1)
-    prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal',
-                                                     'rearHighPctChgPred', 'open','high', 'low', 'close','volume',
-                                                     'amount','turn', 'pctChg', 'isST', 'remarks']]
-                                                     
-    conn = base_connect_database.engine_conn('postgre')
-    prediction_stock_price.to_sql(TABLE_NAME, con=conn.engine, index=False, if_exists='replace')  # 输出到数据库
-    
-    # Rename and save to CSV file
-    prediction_stock_price = prediction_stock_price.rename(columns={'open': '今开盘价格',
-                                                                     'high': '最高价',
-                                                                     'low': '最低价',
-                                                                     'close': '今收盘价',
-                                                                     'volume': '成交数量',
-                                                                     'amount': '成交金额',
-                                                                     'turn': '换手率',
-                                                                     'pctChg': '涨跌幅',
-                                                                     'rearLowPctChgReal': '明天_最低价幅_真实值',
-                                                                     'rearLowPctChgPred': '明天_最低价幅_预测值',
-                                                                     'rearHighPctChgReal': '明天_最高价幅_真实值',
-                                                                     'rearHighPctChgPred': '明天_最高价幅_预测值',
-                                                                     'isST': '是否ST',
-                                                                     'remarks': '备注',
-                                                                     })
+    prediction_stock_price = stock_model.data_processing_pipline(date_range_data)
     prediction_stock_price.to_csv(PREDICTION_PRICE_OUTPUT_CSV_PATH, index=False)
     
     # Save and load model
