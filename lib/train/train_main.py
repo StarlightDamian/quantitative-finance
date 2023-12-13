@@ -191,7 +191,7 @@ class StockPredictionModel:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2022-09-01', help='进行训练的起始时间')
+    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行训练的起始时间')
     parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行训练的结束时间')
     args = parser.parse_args()
 
@@ -210,6 +210,8 @@ if __name__ == '__main__':
     prediction_stock_price['primaryKey'] = primary_key_test
     prediction_stock_price = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name],on='primaryKey')
     prediction_stock_price = prediction_stock_price.rename(columns={'date': '日期',
+                                                                    'code': '股票代码',
+                                                                    'code_name': '股票中文名称',
                                                                     'isST': '是否ST',
                                                                     })
     

@@ -83,14 +83,12 @@ class PerformFeatureEngineering:
         date_range_data['industry'] = date_range_data['industry'].replace(['', pd.NA], '其他')
         
         # lightgbm不支持str，把str类型转化为ont-hot
-        print('33333333',date_range_data.columns)
         date_range_data = pd.get_dummies(date_range_data, columns=['industry', 'tradestatus', 'isST'])
         
         # 删除非训练字段
         feature_names = date_range_data.columns.tolist()
         columns_to_drop = ['date', 'code','code_name','adjustflag','targetDate']
         feature_names = list(set(feature_names) - set(columns_to_drop))
-        print('44444444',feature_names)
         
         # 明日最高值相对于今日收盘价的涨跌幅
         date_range_data['rearHighPctChgPred'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
