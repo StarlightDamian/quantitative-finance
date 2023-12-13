@@ -15,7 +15,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.model_selection import train_test_split
 
 from __init__ import path
-from get_data import data_loading #, data_plate 
+#from get_data import data_loading #, data_plate
 from feature_engineering import feature_engineering_main
 from base import base_connect_database
 
@@ -56,6 +56,11 @@ class StockPredictionModel:
 
     def data_processing_pipline(self, date_range_data):
         x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test = self.feature_engineering_pipline(date_range_data)
+        
+        # 训练集的主键删除，测试集的主键抛出
+        del x_train['primaryKey']
+        primary_key_test = x_test.pop('primaryKey')
+        
         stock_model.train_model(x_train, y_high_train)
         y_high, x_high_test, rmse, mae = stock_model.evaluate_model(x_test, y_high_test)
         y_high = y_high.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'})
@@ -70,7 +75,7 @@ class StockPredictionModel:
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: '封板' if row['high'] == row['low'] else '', axis=1)
         prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal',
                                                          'rearHighPctChgPred', 'open','high', 'low', 'close','volume',
-                                                         'amount','turn', 'pctChg', 'isST', 'remarks']]
+                                                         'amount','turn', 'pctChg', 'remarks']]
                                                          
         conn = base_connect_database.engine_conn('postgre')
         prediction_stock_price.to_sql(TABLE_NAME, con=conn.engine, index=False, if_exists='replace')  # 输出到数据库
@@ -88,10 +93,9 @@ class StockPredictionModel:
                                                                          'rearLowPctChgPred': '明天_最低价幅_预测值',
                                                                          'rearHighPctChgReal': '明天_最高价幅_真实值',
                                                                          'rearHighPctChgPred': '明天_最高价幅_预测值',
-                                                                         'isST': '是否ST',
                                                                          'remarks': '备注',
                                                                          })
-        return prediction_stock_price
+        return prediction_stock_price, primary_key_test
 
     def train_model(self, x_train, y_train):
         """
@@ -187,17 +191,28 @@ class StockPredictionModel:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行训练的起始时间')
+    parser.add_argument('--date_start', type=str, default='2022-09-01', help='进行训练的起始时间')
     parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行训练的结束时间')
     args = parser.parse_args()
 
     print(f'进行训练的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
     
     # Load date range data
-    date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
-
+    #date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
+    conn = base_connect_database.engine_conn('postgre')
+    date_range_data = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
+    
     stock_model = StockPredictionModel()
-    prediction_stock_price = stock_model.data_processing_pipline(date_range_data)
+    prediction_stock_price, primary_key_test = stock_model.data_processing_pipline(date_range_data)
+    
+    # 通过主键关联字段
+    related_name = ['date', 'code', 'code_name', 'isST']
+    prediction_stock_price['primaryKey'] = primary_key_test
+    prediction_stock_price = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name],on='primaryKey')
+    prediction_stock_price = prediction_stock_price.rename(columns={'date': '日期',
+                                                                    'isST': '是否ST',
+                                                                    })
+    
     prediction_stock_price.to_csv(PREDICTION_PRICE_OUTPUT_CSV_PATH, index=False)
     
     # Save and load model
@@ -207,6 +222,10 @@ if __name__ == '__main__':
     # Plot feature importance
     #stock_model.plot_feature_importance()
     stock_model.plot_feature_importance()
+
+
+
+
 
 #w×RMSE+(1−w)×MAE
 

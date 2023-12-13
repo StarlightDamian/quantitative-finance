@@ -3,45 +3,90 @@
 Created on Tue Aug  8 18:00:15 2023
 
 @author: awei
-指定日期所有股
+获取指定日期全部股票的日K线数据
 """
-path = 'C:/Users/awei/Desktop/github/quantitative-finance'
+from datetime import datetime
+from sqlalchemy import Float, Numeric, String
+
 import baostock as bs
 import pandas as pd
-from datetime import datetime
+
+from __init__ import path
+from base import base_connect_database, base_utils
 
 class GetDayData:
     def __init__(self):
         bs.login()
-        self.stock_df = pd.read_csv(f'{path}/data/A_share_code.csv')#.head(20)# 获取指数、股票数据
+        self.stock_df = pd.read_csv(f'{path}/data/all_stock.csv', encoding='gb18030')#.head(20)# 获取指数、股票数据
         
     def download_data_1(self, substring_pd):
-        code = substring_pd.code.values[0]
-        time = datetime.now().strftime('%F %T')
-        print(f'{code} {time}')
+        code = substring_pd.name
+        # time = datetime.now().strftime('%F %T')
+        # print(f'{code} {time}')
         k_rs = bs.query_history_k_data_plus(code,
-                                            "date,code,open,high,low,close,preclose,volume,amount,adjustflag,turn,tradestatus,pctChg,isST",
+                                            "date,code,open,high,low,close,preclose,volume,amount,adjustflag,turn,tradestatus,pctChg,peTTM,psTTM,pcfNcfTTM,pbMRQ,isST",
                                             "1990-01-01", "2024-01-01")
-        return k_rs.get_data()
+        data_df = k_rs.get_data()
+        
+        # primaryKey主键不参与训练，用于关联对应数据
+        data_df['primaryKey'] = (data_df['date']+data_df['code']).apply(base_utils.md5_str) # md5（日期、时间、代码）
+        return data_df
     
     def download_data(self):
         data_df = self.stock_df.groupby('code').apply(self.download_data_1)
-        data_df = data_df.reset_index(drop=True) 
-        output_df = pd.merge(data_df, self.stock_df[['code', 'code_name']], on='code')
-        output_df = output_df[['date', 'code', 'code_name', 'open', 'high', 'low', 'close', 'preclose', 'volume', 'amount', 'adjustflag', 'turn', 'tradestatus', 'pctChg', 'isST']]
         bs.logout()
-        return output_df
+        return data_df.reset_index(drop=True) 
     
+    def data_handle(self, data_raw_df):
+        data_raw_df = pd.merge(data_raw_df, self.stock_df[['code', 'code_name']], on='code')
+        
+        # 对异常值补全. 部分'amount'、'volume'为''
+        columns_float_list = ['open', 'high', 'low', 'close', 'preclose']
+        data_raw_df[columns_float_list] = data_raw_df[columns_float_list].fillna(0).astype(float)
+        
+        # 更高级别的异常处理
+        columns_apply_float_list = ['amount', 'turn', 'pctChg', 'peTTM', 'psTTM', 'pcfNcfTTM', 'pbMRQ']  # 选择需要处理的字段列表
+        data_raw_df.loc[:, columns_apply_float_list] = data_raw_df[columns_apply_float_list].apply(pd.to_numeric, errors='coerce')  # 使用apply函数对每个字段进行处理
+        data_raw_df[columns_apply_float_list] = data_raw_df[columns_apply_float_list].fillna(0).astype(float)  # 将 NaN 值填充为 0 或其他合适的值
+        
+        # volume中有异常值,太长无法使用.astype(int)。'adjustflag', 'tradestatus', 'isST',保持str
+        data_raw_df.loc[:, ['volume']] = pd.to_numeric(data_raw_df['volume'], errors='coerce', downcast='integer')  # 使用pd.to_numeric进行转换，将错误的值替换为 NaN
+        data_raw_df[['volume']] = data_raw_df[['volume']].fillna(0).astype('int64')  # 将 NaN 值填充为 0 或其他合适的值
+        
+        return data_raw_df[['primaryKey', 'date', 'code', 'code_name', 'open', 'high', 'low', 'close', 'preclose', 'volume', 'amount', 'adjustflag', 'turn', 'tradestatus', 'pctChg', 'peTTM', 'psTTM', 'pcfNcfTTM', 'pbMRQ', 'isST']]
     
 if __name__ == '__main__':
     get_day_data = GetDayData()
-    # 获取指定日期全部股票的日K线数据
-    output_df = get_day_data.download_data()
-    #output_df.to_csv("E:/download/demo_assignDayData.csv", encoding="gbk", index=False)
-    output_df.to_feather(f'{path}/data/k_day.feather')
-    print(output_df)
+    #k_data_raw_df = get_day_data.download_data()
+    #k_data_raw_df.to_feather(f'{path}/data/history_a_stock_k_data.feather') #原生数据
+    k_data_raw_df = pd.read_feather(f'{path}/data/history_a_stock_k_data.feather')
+    data_handle_df = get_day_data.data_handle(k_data_raw_df)
+    print(f'数据量：{data_handle_df.shape[0]}')
 
-
+    conn = base_connect_database.engine_conn('postgre')
+    data_handle_df.to_sql('history_a_stock_k_data', con=conn.engine, index=False, if_exists='replace',
+                            dtype={'primaryKey': String,
+                                    'date': String,
+                                    'code': String,
+                                    'code_name': String,
+                                    'open': Float,
+                                    'high': Float,
+                                    'low': Float,
+                                    'close': Float,
+                                    'preclose': Float,
+                                    'volume': Numeric,
+                                    'amount': Numeric,
+                                    'adjustflag': String,
+                                    'turn': Float,
+                                    'tradestatus': String,
+                                    'pctChg': Float,
+                                    'peTTM': Float,
+                                    'psTTM': Float,
+                                    'pcfNcfTTM': Float,
+                                    'pbMRQ': Float,
+                                    'isST': String,
+                                    })
+    
 # =============================================================================
 # def download_data(date):
 #     bs.login()

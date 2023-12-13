@@ -62,11 +62,38 @@ def engine_conn(type_database):
 
 if __name__ == '__main__':
     print(path)
-    with engine_conn('postgre') as conn_pg:
-        data = pd.read_sql("SELECT * FROM stock_industry limit 10", con=conn_pg.engine)  # Use conn_pg.engine
+    with engine_conn('postgre') as conn:
+        data = pd.read_sql("SELECT * FROM history_a_stock_k_data limit 10", con=conn.engine)  # Use conn_pg.engine
         print(data)
         
-    
+    #from base import base_utils
+    #data['primaryKey'] = (data['date']+data['code']).apply(base_utils.md5_str) # md5（日期、时间、代码）
+    #from sqlalchemy import Float, Numeric, String
+# =============================================================================
+#     data.to_sql('history_a_stock_k_data', con=conn.engine, index=False, if_exists='replace',
+#                             dtype={
+#                                 'primaryKey': String,
+#                                 'date': String,
+#                                 'code': String,
+#                                 'code_name': String,
+#                                 'open': Float,
+#                                 'high': Float,
+#                                 'low': Float,
+#                                 'close': Float,
+#                                 'preclose': Float,
+#                                 'volume': Numeric,
+#                                 'amount': Numeric,
+#                                 'adjustflag': String,
+#                                 'turn': Float,
+#                                 'tradestatus': String,
+#                                 'pctChg': Float,
+#                                 'peTTM': Float,
+#                                 'psTTM': Float,
+#                                 'pcfNcfTTM': Float,
+#                                 'pbMRQ': Float,
+#                                 'isST': String,
+#                             })
+# =============================================================================
     # conn_pg = engine_conn('postgre')
     # data = pd.read_sql("SELECT * FROM warning_hot_word_mx limit 10",con=conn_pg)
     

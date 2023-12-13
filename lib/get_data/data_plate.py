@@ -50,7 +50,7 @@ def get_base_data(data_type, conn):
     #result.to_csv(f"{path}/data/{filename}.csv", encoding="gbk", index=False)
     now = datetime.now().strftime("%F %T")
     result['last_updated'] = now
-    result.to_sql(filename, con=conn, index=False, if_exists='replace')  # 输出到数据库
+    result.to_sql(filename, con=conn.engine, index=False, if_exists='replace')  # 输出到数据库
     print(f'数据成功入库： {data_type}\n当前时间： {now}\n==============')
     
     # return result
