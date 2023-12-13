@@ -154,8 +154,8 @@ if __name__ == '__main__':
     print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
     
     # 获取日期段数据
-    conn = base_connect_database.engine_conn('postgre')
-    date_range_data = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
+    with base_connect_database.engine_conn('postgre') as conn:
+        date_range_data = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
     #date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
     print(date_range_data)
     

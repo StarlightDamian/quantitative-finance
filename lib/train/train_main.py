@@ -199,8 +199,8 @@ if __name__ == '__main__':
     
     # Load date range data
     #date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)
-    conn = base_connect_database.engine_conn('postgre')
-    date_range_data = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
+    with base_connect_database.engine_conn('postgre') as conn:
+        date_range_data = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
     
     stock_model = StockPredictionModel()
     prediction_stock_price, primary_key_test = stock_model.data_processing_pipline(date_range_data)

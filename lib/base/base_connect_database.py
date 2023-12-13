@@ -51,6 +51,7 @@ def engine_conn(type_database):
     database_name = database_dict.get(f"{type_database}")
     user_password_host_port_database_str = f"{user}:{password}@{host}:{port}/{database}"
 
+
     if type_database == 'hive':
         auth = arg.conf('hive_auth')
         db_url = f"{database_name}://{user_password_host_port_database_str}?auth={auth}"
