@@ -141,8 +141,8 @@ class PerformFeatureEngineering:
         date_range_data, feature_names = self.feature_engineering_pipline(date_range_data)
         date_range_high_bunch, date_range_low_bunch = self.build_dataset(date_range_data, feature_names)
         return date_range_high_bunch, date_range_low_bunch
-        
-    
+            
+            
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--date_start', type=str, default='2023-01-01', help='进行回测的起始时间')
@@ -162,6 +162,7 @@ if __name__ == '__main__':
     
     # 特征工程结果
     date_range_data, feature_names = perform_feature_engineering.feature_engineering_pipline(date_range_data)
+    
     
     #date_range_high_bunch, date_range_low_bunch = perform_feature_engineering.feature_engineering_pipline(date_range_data)
     #print(date_range_high_bunch, date_range_low_bunch)

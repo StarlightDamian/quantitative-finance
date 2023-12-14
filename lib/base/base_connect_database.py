@@ -62,11 +62,19 @@ def engine_conn(type_database):
 
 
 if __name__ == '__main__':
-    print(path)
+    # print(path)
+    
+    # Data exploration
     with engine_conn('postgre') as conn:
-        data = pd.read_sql("SELECT * FROM history_a_stock_k_data limit 10", con=conn.engine)  # Use conn_pg.engine
+        table_name = 'history_a_stock_k_data'
+        count_field = 'date'
+        #data = pd.read_sql("SELECT * FROM history_a_stock_k_data limit 10", con=conn.engine)  # Use conn_pg.engine
+        data = pd.read_sql(f"SELECT {count_field}, COUNT(*) AS data_count FROM {table_name} GROUP BY {count_field} ORDER BY {count_field}", con=conn.engine)
         print(data)
-        
+    
+    print('The amount of data:', data.data_count.sum())
+    data.to_csv(f'{path}/data/history_a_stock_k_data_count_date.csv')
+    
     #from base import base_utils
     #data['primaryKey'] = (data['date']+data['code']).apply(base_utils.md5_str) # md5（日期、时间、代码）
     #from sqlalchemy import Float, Numeric, String
