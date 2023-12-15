@@ -17,11 +17,11 @@ from train import train_main
 TEST_TABLE_NAME = 'prediction_stock_price_test'
 
 class StockPredictionModel(train_main.StockTrainModel):
-    def __init__(self):
+    def __init__(self, date_start, date_end):
         """
         Initialize StockPredictionModel object, including feature engineering and database connection.
         """
-        super().__init__()
+        super().__init__(date_start, date_end)
         
     def load_model(self, model_path):
         """
@@ -37,7 +37,7 @@ class StockPredictionModel(train_main.StockTrainModel):
         return None, x_test, None, y_test
 
     def data_processing_prediction(self, date_range_data):
-        _, x_test, _, y_high_test, _, y_low_test = self.feature_engineering_pipline(date_range_data)
+        _, x_test, _, y_high_test, _, y_low_test,_ ,y_diff_test = self.feature_engineering_pipline(date_range_data)
         
         # 训练集的主键删除，测试集的主键抛出
         primary_key_test = x_test.pop('primaryKey')
@@ -52,13 +52,18 @@ class StockPredictionModel(train_main.StockTrainModel):
         #self.train_model(x_train, y_low_train)
         y_low, x_low_test, rmse, mae = self.evaluate_model(x_test, y_low_test, task_name='test', prediction_name='low')
         y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
-        
+
+        self.load_model(f'{path}/checkpoint/prediction_stock_diff_model.txt')
+        #self.train_model(x_train, y_low_train)
+        y_diff, x_diff_test, rmse, mae = self.evaluate_model(x_test, y_diff_test, task_name='test', prediction_name='diff')
+        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal', 1: 'rearDiffPctChgPred'})        
+
         x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
-        prediction_stock_price  = pd.concat([y_high, y_low, x_high_test], axis=1)
+        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_high_test], axis=1)
         
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
-        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal',
-                                                         'rearHighPctChgPred', 'open','high', 'low', 'close','volume',
+        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal','rearHighPctChgPred', 
+                                                         'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close','volume',
                                                          'amount','turn', 'pctChg', 'remarks']]
                                                          
         # 通过主键关联字段

@@ -22,7 +22,7 @@ from base import base_connect_database
 
 # Constants
 #MODEL_PATH = f'{path}/checkpoint/prediction_stock_model.txt'
-PREDICTION_PRICE_OUTPUT_CSV_PATH = f'{path}/data/prediction_stock_price.csv'
+PREDICTION_PRICE_OUTPUT_CSV_PATH = f'{path}/data/prediction_stock_price_train.csv'
 TRAIN_TABLE_NAME = 'prediction_stock_price_train'
 EVAL_TABLE_NAME = 'eval_train'
 TEST_SIZE = 0.15 #数据集分割中测试集占比
@@ -52,14 +52,16 @@ class StockTrainModel:
         """
         Execute feature engineering pipeline and return datasets for training and testing.
         """
-        date_range_high_bunch, date_range_low_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
+        date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
         x_train, x_test, y_high_train, y_high_test = self.load_dataset(date_range_high_bunch)
 
         _, _, y_low_train, y_low_test = self.load_dataset(date_range_low_bunch)
-        return x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test
+        
+        _, _, y_diff_train, y_diff_test = self.load_dataset(date_range_diff_bunch)
+        return x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test, y_diff_train, y_diff_test
 
     def data_processing_pipline(self, date_range_data):
-        x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test = self.feature_engineering_pipline(date_range_data)
+        x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test, y_diff_train, y_diff_test = self.feature_engineering_pipline(date_range_data)
         
         # 训练集的主键删除，测试集的主键抛出
         del x_train['primaryKey']
@@ -73,20 +75,23 @@ class StockTrainModel:
         y_low, x_low_test, rmse, mae = self.evaluate_model(x_test, y_low_test, task_name='train', prediction_name='low')
         y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
         
+        self.train_model(x_train, y_diff_train, f'{path}/checkpoint/prediction_stock_diff_model.txt')
+        y_diff, x_diff_test, rmse, mae = self.evaluate_model(x_test, y_diff_test, task_name='train', prediction_name='diff')
+        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal', 1: 'rearDiffPctChgPred'})
+
         x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
-        prediction_stock_price  = pd.concat([y_high, y_low, x_high_test], axis=1)
+        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_high_test], axis=1)
         
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
         
-        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal',
-                                                         'rearHighPctChgPred', 'open','high', 'low', 'close','volume',
+        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal', 'rearHighPctChgPred',
+                                                         'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close','volume',
                                                          'amount','turn', 'pctChg', 'remarks']]
         # 通过主键关联字段
         related_name = ['date', 'code', 'code_name', 'isST']
         prediction_stock_price['primaryKey'] = primary_key_test
-        d1 = date_range_data[['primaryKey']+related_name]
         
-        prediction_stock_price_related = pd.merge(prediction_stock_price, d1, on='primaryKey')
+        prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name], on='primaryKey')
         
         with base_connect_database.engine_conn('postgre') as conn:
             prediction_stock_price_related.to_sql(TRAIN_TABLE_NAME, con=conn.engine, index=False, if_exists='replace')
@@ -103,7 +108,7 @@ class StockTrainModel:
             'objective': 'regression',
             'num_leaves': 10, # 决策树上的叶子节点的数量，控制树的复杂度
             'learning_rate': 0.05,
-            'metric': ['mae', 'root_mean_squared_error'], # 模型通过mae进行优化, root_mean_squared_error进行评估。
+            'metric': ['mae'], # 模型通过mae进行优化, root_mean_squared_error进行评估。, 'root_mean_squared_error'
             'verbose': -1, # 控制输出信息的详细程度，-1 表示不输出任何信息
         }
 
@@ -223,6 +228,8 @@ if __name__ == '__main__':
                                                                                      'rearLowPctChgPred': '明天_最低价幅_预测值',
                                                                                      'rearHighPctChgReal': '明天_最高价幅_真实值',
                                                                                      'rearHighPctChgPred': '明天_最高价幅_预测值',
+                                                                                     'rearDiffPctChgReal': '明天_变化价幅_真实值',
+                                                                                     'rearDiffPctChgPred': '明天_变化价幅_预测值',
                                                                                      'remarks': '备注',
                                                                                      'date': '日期',
                                                                                     'code': '股票代码',

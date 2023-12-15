@@ -32,9 +32,10 @@ if __name__ == '__main__':
     date = '2023-03-01'
     day_price_df = historical_price_df[historical_price_df.date == '2023-03-01']
     
-    day_price_df['rearDiffPctChgPred'] = day_price_df.rearHighPctChgPred - day_price_df.rearLowPctChgPred
-    day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
+    #day_price_df['rearDiffPctChgPred'] = day_price_df.rearHighPctChgPred - day_price_df.rearLowPctChgPred
+    #day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
     #day_price_sort_df = day_price_df.sort_values(by='rearHighPctChgPred', ascending=False)
+    day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
     
     day_price_sort_df = day_price_sort_df[~(day_price_sort_df.remarks=='limit_up')]#.reset_index(drop=True) 序号
     day_price_sort_df.head(10).to_csv(f'{path}/data/trade_day_price.csv', index=False)

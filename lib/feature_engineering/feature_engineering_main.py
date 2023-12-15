@@ -36,7 +36,7 @@ class PerformFeatureEngineering:
         self.code_and_industry_dict = stock_industry.set_index('code')['industry'].to_dict()
         
         self.one_hot_encoder = OneHotEncoder(sparse_output=False)
-        self.target_names = ['rearHighPctChgPred', 'rearLowPctChgPred']
+        self.target_names = ['rearHighPctChgPred', 'rearLowPctChgPred', 'rearDiffPctChgPred']
         
     def specified_trading_day(self, pre_date_num=1):
         """
@@ -93,6 +93,7 @@ class PerformFeatureEngineering:
         # 明日最高值相对于今日收盘价的涨跌幅
         date_range_data['rearHighPctChgPred'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
         date_range_data['rearLowPctChgPred'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rearDiffPctChgPred'] = date_range_data.rearHighPctChgPred - date_range_data.rearLowPctChgPred
         
         return date_range_data, feature_names
     
@@ -115,7 +116,16 @@ class PerformFeatureEngineering:
                          'target_names': [self.target_names[1]],
                          }
         date_range_low_bunch = Bunch(**date_range_low_dict)
-        return date_range_high_bunch, date_range_low_bunch
+        
+        #差值数据集
+        date_range_diff_dict = {'data': np.array(feature_df.to_records(index=False)),
+                         'feature_names': feature_names,
+                         'target': date_range_data[self.target_names[2]].values,
+                         'target_names': [self.target_names[2]],
+                         }
+        date_range_diff_bunch = Bunch(**date_range_diff_dict)
+        
+        return date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch
     
     def feature_engineering_pipline(self, date_range_data):
         """
@@ -139,10 +149,10 @@ class PerformFeatureEngineering:
         """
         # 构建数据集
         date_range_data, feature_names = self.feature_engineering_pipline(date_range_data)
-        date_range_high_bunch, date_range_low_bunch = self.build_dataset(date_range_data, feature_names)
-        return date_range_high_bunch, date_range_low_bunch
-            
-            
+        date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch = self.build_dataset(date_range_data, feature_names)
+        return date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch
+    
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--date_start', type=str, default='2023-01-01', help='进行回测的起始时间')
