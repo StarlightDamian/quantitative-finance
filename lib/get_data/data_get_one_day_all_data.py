@@ -4,6 +4,7 @@ Created on Tue Aug  8 18:00:15 2023
 
 @author: awei
 获取指定日期全部股票的日K线数据
+code_name 不属于特征，在这一层加入
 """
 from datetime import datetime
 from sqlalchemy import Float, Numeric, String

@@ -27,18 +27,24 @@ if __name__ == '__main__':
         historical_price_df = pd.read_sql(f"SELECT * FROM {HISTORICAL_PRICE_TABLE_NAME} WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
     
     print(historical_price_df)
-    print('Trading days:',len(historical_price_df.date.unique()))
     
-    date = '2023-03-01'
-    day_price_df = historical_price_df[historical_price_df.date == '2023-03-01']
+    trade_price_code = historical_price_df[historical_price_df.code=='sz.002230']
+    trade_price_code.to_csv(f'{path}/data/trade_price_code.csv', index=False)
     
-    #day_price_df['rearDiffPctChgPred'] = day_price_df.rearHighPctChgPred - day_price_df.rearLowPctChgPred
-    #day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
-    #day_price_sort_df = day_price_df.sort_values(by='rearHighPctChgPred', ascending=False)
-    day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
-    
-    day_price_sort_df = day_price_sort_df[~(day_price_sort_df.remarks=='limit_up')]#.reset_index(drop=True) 序号
-    day_price_sort_df.head(10).to_csv(f'{path}/data/trade_day_price.csv', index=False)
+# =============================================================================
+#     print('Trading days:',len(historical_price_df.date.unique()))
+#     
+#     date = '2023-03-01'
+#     day_price_df = historical_price_df[historical_price_df.date == '2023-03-01']
+#     
+#     #day_price_df['rearDiffPctChgPred'] = day_price_df.rearHighPctChgPred - day_price_df.rearLowPctChgPred
+#     #day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
+#     #day_price_sort_df = day_price_df.sort_values(by='rearHighPctChgPred', ascending=False)
+#     day_price_sort_df = day_price_df.sort_values(by='rearDiffPctChgPred', ascending=False)
+#     
+#     day_price_sort_df = day_price_sort_df[~(day_price_sort_df.remarks=='limit_up')]#.reset_index(drop=True) 序号
+#     day_price_sort_df.head(10).to_csv(f'{path}/data/trade_price_day.csv', index=False)
+# =============================================================================
     
     
     

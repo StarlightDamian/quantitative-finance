@@ -4,6 +4,7 @@ Created on Thu Aug 24 16:04:00 2023
 
 @author: awei
 """
+from datetime import datetime
 import argparse
 
 import pandas as pd
@@ -39,27 +40,49 @@ class StockPredictionModel(train_main.StockTrainModel):
     def data_processing_prediction(self, date_range_data):
         _, x_test, _, y_high_test, _, y_low_test,_ ,y_diff_test = self.feature_engineering_pipline(date_range_data)
         
+# =============================================================================
+#         x_test = x_test[['industry_国防军工', 'open', 'industry_其他', 'high', 'close',
+#                'industry_休闲服务', 'industry_计算机', 'industry_建筑材料', 'industry_非银金融',
+#                'industry_公用事业', 'pctChg', 'industry_传媒', 'industry_化工',
+#                'industry_建筑装饰', 'industry_电子', 'industry_机械设备', 'isST_1',
+#                'industry_交通运输', 'industry_综合', 'turn', 'industry_房地产', 'preclose',
+#                'isST_0', 'pbMRQ', 'amount', 'dateDiff', 'industry_商业贸易',
+#                'industry_家用电器', 'industry_医药生物', 'industry_电气设备', 'industry_钢铁',
+#                'industry_轻工制造', 'tradestatus_1', 'industry_农林牧渔', 'industry_采掘',
+#                'peTTM', 'low', 'psTTM', 'primaryKey', 'industry_银行', 'industry_食品饮料',
+#                'industry_纺织服装', 'industry_通信', 'industry_有色金属', 'industry_汽车',
+#                'pcfNcfTTM', 'volume', 'tradestatus_0']]
+# =============================================================================
+        # model.dump_model()['feature_names']        
+        
         # 训练集的主键删除，测试集的主键抛出
         primary_key_test = x_test.pop('primaryKey')
         
         #stock_model.train_model(x_train, y_high_train)
         #self.load_model(MODEL_PATH)
         self.load_model(f'{path}/checkpoint/prediction_stock_high_model.txt')
-        y_high, x_high_test, rmse, mae = self.evaluate_model(x_test, y_high_test, task_name='test', prediction_name='high')
-        y_high = y_high.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'})
+        feature_names = self.model.dump_model()['feature_names']
+        x_test = x_test[feature_names]
+        y_high = self.prediction_y(y_high_test, x_test, task_name='test', prediction_name='high')
+        y_high = y_high.rename(columns={0: 'rearHighPctChgReal',
+                                        1: 'rearHighPctChgPred'})
         
         self.load_model(f'{path}/checkpoint/prediction_stock_low_model.txt')
-        #self.train_model(x_train, y_low_train)
-        y_low, x_low_test, rmse, mae = self.evaluate_model(x_test, y_low_test, task_name='test', prediction_name='low')
-        y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
+        feature_names = self.model.dump_model()['feature_names']
+        x_test = x_test[feature_names]
+        y_low = self.prediction_y(y_low_test, x_test, task_name='test', prediction_name='low')
+        y_low = y_low.rename(columns={0: 'rearLowPctChgReal',
+                                      1: 'rearLowPctChgPred'})
 
         self.load_model(f'{path}/checkpoint/prediction_stock_diff_model.txt')
-        #self.train_model(x_train, y_low_train)
-        y_diff, x_diff_test, rmse, mae = self.evaluate_model(x_test, y_diff_test, task_name='test', prediction_name='diff')
-        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal', 1: 'rearDiffPctChgPred'})        
+        feature_names = self.model.dump_model()['feature_names']
+        x_test = x_test[feature_names]
+        y_diff = self.prediction_y(y_diff_test, x_test, task_name='test', prediction_name='diff')
+        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal',
+                                        1: 'rearDiffPctChgPred'})
 
-        x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
-        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_high_test], axis=1)
+        x_test = x_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
+        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_test], axis=1)
         
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
         prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal','rearHighPctChgPred', 
@@ -72,6 +95,7 @@ class StockPredictionModel(train_main.StockTrainModel):
         prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name],on='primaryKey')
         
         with base_connect_database.engine_conn('postgre') as conn:
+            prediction_stock_price_related['insert_timestamp'] = datetime.now().strftime('%F %T')
             prediction_stock_price_related.to_sql(TEST_TABLE_NAME, con=conn.engine, index=False, if_exists='replace')  # 输出到数据库
             
         return prediction_stock_price_related
@@ -101,3 +125,7 @@ if __name__ == '__main__':
     stock_prediction_model = StockPredictionModel(date_start=args.date_start, date_end=args.date_end)
     prediction_stock_price_related = stock_prediction_model.data_processing_prediction(backtest_df)
     
+    
+    # path='E:/03_software_engineering/github/quantitative-finance/checkpoint'
+    # model = lgb.Booster(model_file=f'{path}/prediction_stock_diff_model.txt')
+    # model.dump_model()['feature_names']

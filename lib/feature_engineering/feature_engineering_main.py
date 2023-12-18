@@ -7,6 +7,7 @@ Created on Wed Nov 29 17:07:09 2023
 feature_engineering_main
 """
 import argparse
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
@@ -36,7 +37,8 @@ class PerformFeatureEngineering:
         self.code_and_industry_dict = stock_industry.set_index('code')['industry'].to_dict()
         
         self.one_hot_encoder = OneHotEncoder(sparse_output=False)
-        self.target_names = ['rearHighPctChgPred', 'rearLowPctChgPred', 'rearDiffPctChgPred']
+        # self.target_names = ['rearHighPctChgPred', 'rearLowPctChgPred', 'rearDiffPctChgPred']
+        self.target_names = ['rearHighPctChgReal', 'rearLowPctChgReal', 'rearDiffPctChgReal']
         
     def specified_trading_day(self, pre_date_num=1):
         """
@@ -82,24 +84,31 @@ class PerformFeatureEngineering:
         date_range_data['industry'] = date_range_data.code.map(self.code_and_industry_dict)
         date_range_data['industry'] = date_range_data['industry'].replace(['', pd.NA], '其他')
         
+        # 特征：星期
+        date_range_data['date_week'] = pd.to_datetime(date_range_data['date'], format='%Y-%m-%d').dt.day_name()
+        
         # lightgbm不支持str，把str类型转化为ont-hot
-        date_range_data = pd.get_dummies(date_range_data, columns=['industry', 'tradestatus', 'isST'])
+        date_range_data = pd.get_dummies(date_range_data, columns=['industry', 'tradestatus', 'isST', 'date_week'])
         
         # 删除非训练字段
         feature_names = date_range_data.columns.tolist()
-        columns_to_drop = ['date', 'code','code_name','adjustflag','targetDate']
+        
+        # 明日最高/低值相对于今日收盘价的涨跌幅真实值
+        date_range_data['rearHighPctChgReal'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rearLowPctChgReal'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rearDiffPctChgReal'] = date_range_data.rearHighPctChgReal - date_range_data.rearLowPctChgReal
+        
+        columns_to_drop = ['date', 'code', 'code_name', 'adjustflag', 'targetDate', 'rearLow', 'rearHigh']
         feature_names = list(set(feature_names) - set(columns_to_drop))
-        
-        # 明日最高值相对于今日收盘价的涨跌幅
-        date_range_data['rearHighPctChgPred'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
-        date_range_data['rearLowPctChgPred'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
-        date_range_data['rearDiffPctChgPred'] = date_range_data.rearHighPctChgPred - date_range_data.rearLowPctChgPred
-        
         return date_range_data, feature_names
     
     def build_dataset(self, date_range_data, feature_names):
-        # 最高价格数据集
+        # 构建数据集
+        
+        feature_names = sorted(feature_names) # 输出有序标签
+        print(f'feature: {feature_names}')
         feature_df = date_range_data[feature_names]
+        
         #target_df = date_range_data[self.target_names]  # 机器学习预测值
         
         date_range_high_dict = {'data': np.array(feature_df.to_records(index=False)),  # 不使用 feature_df.values,使用结构化数组保存每一列的类型

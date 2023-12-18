@@ -41,10 +41,13 @@ class StockTrainModel:
         self.model = None
         self.date_start = None
         self.date_end = None
+        #self.columns_train_str = None
         
     def load_dataset(self, date_range_bunch, test_size=TEST_SIZE, random_state=SEED):
         x, y = date_range_bunch.data, date_range_bunch.target
-        x_df = pd.DataFrame(x, columns=date_range_bunch.feature_names)
+        columns_train = date_range_bunch.feature_names
+        #self.columns_train_str = ','.join(columns_train)
+        x_df = pd.DataFrame(x, columns=columns_train)
         x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=test_size, random_state=random_state)
         return x_train, x_test, y_train, y_test
     
@@ -53,11 +56,11 @@ class StockTrainModel:
         Execute feature engineering pipeline and return datasets for training and testing.
         """
         date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
-        x_train, x_test, y_high_train, y_high_test = self.load_dataset(date_range_high_bunch)
-
-        _, _, y_low_train, y_low_test = self.load_dataset(date_range_low_bunch)
         
+        x_train, x_test, y_high_train, y_high_test = self.load_dataset(date_range_high_bunch)
+        _, _, y_low_train, y_low_test = self.load_dataset(date_range_low_bunch)
         _, _, y_diff_train, y_diff_test = self.load_dataset(date_range_diff_bunch)
+        
         return x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test, y_diff_train, y_diff_test
 
     def data_processing_pipline(self, date_range_data):
@@ -68,19 +71,22 @@ class StockTrainModel:
         primary_key_test = x_test.pop('primaryKey').reset_index(drop=True)
         
         self.train_model(x_train, y_high_train, f'{path}/checkpoint/prediction_stock_high_model.txt')
-        y_high, x_high_test, rmse, mae = self.evaluate_model(x_test, y_high_test, task_name='train', prediction_name='high')
-        y_high = y_high.rename(columns={0: 'rearHighPctChgReal', 1: 'rearHighPctChgPred'})
+        y_high = self.prediction_y(y_high_test, x_test, task_name='test', prediction_name='high')
+        y_high = y_high.rename(columns={0: 'rearHighPctChgReal',
+                                        1: 'rearHighPctChgPred'})
         
         self.train_model(x_train, y_low_train, f'{path}/checkpoint/prediction_stock_low_model.txt')
-        y_low, x_low_test, rmse, mae = self.evaluate_model(x_test, y_low_test, task_name='train', prediction_name='low')
-        y_low = y_low.rename(columns={0: 'rearLowPctChgReal', 1: 'rearLowPctChgPred'})
+        y_low = self.prediction_y(y_low_test, x_test, task_name='test', prediction_name='low')
+        y_low = y_low.rename(columns={0: 'rearLowPctChgReal',
+                                      1: 'rearLowPctChgPred'})
         
         self.train_model(x_train, y_diff_train, f'{path}/checkpoint/prediction_stock_diff_model.txt')
-        y_diff, x_diff_test, rmse, mae = self.evaluate_model(x_test, y_diff_test, task_name='train', prediction_name='diff')
-        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal', 1: 'rearDiffPctChgPred'})
+        y_diff = self.prediction_y(y_diff_test, x_test , task_name='test', prediction_name='diff')
+        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal',
+                                        1: 'rearDiffPctChgPred'})
 
-        x_high_test = x_high_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
-        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_high_test], axis=1)
+        x_test = x_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
+        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_test], axis=1)
         
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
         
@@ -88,12 +94,12 @@ class StockTrainModel:
                                                          'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close','volume',
                                                          'amount','turn', 'pctChg', 'remarks']]
         # 通过主键关联字段
-        related_name = ['date', 'code', 'code_name', 'isST']
+        related_name = ['date', 'code', 'code_name', 'isST']  # partition_date
         prediction_stock_price['primaryKey'] = primary_key_test
-        
         prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name], on='primaryKey')
         
         with base_connect_database.engine_conn('postgre') as conn:
+            prediction_stock_price_related['insert_timestamp'] = datetime.now().strftime('%F %T')
             prediction_stock_price_related.to_sql(TRAIN_TABLE_NAME, con=conn.engine, index=False, if_exists='replace')
         
         return prediction_stock_price_related
@@ -118,10 +124,9 @@ class StockTrainModel:
         # fitting the model
         self.model = lgb.train(params, train_set=lgb_train)
         self.model.save_model(model_path)
-    # Save and load model
-    #stock_model.save_model(MODEL_PATH)
+
 # =============================================================================
-#     def evaluate_model2(self, lgb_train, params):
+#     def evaluate_x(self, lgb_train, params):
 #         # 通过训练模型本身的参数输出对应的评估指标
 #         # Use cross-validation to obtain evaluation results
 #         cv_results = lgb.cv(params, lgb_train, nfold=5, metrics=params['metric'], verbose_eval=False)
@@ -134,23 +139,25 @@ class StockTrainModel:
 #         return cv_results
 # =============================================================================
 
-    def evaluate_model(self, x_test_eval, y_test_eval, task_name=None, prediction_name=None):
+    def prediction_y(self, y_true, y_test, task_name=None, prediction_name=None):
         """
+        evaluate_model
         Evaluate model performance, calculate RMSE and MAE, output results to the database, and return DataFrame.
         """
-        y_pred = self.model.predict(x_test_eval)
+        y_pred = self.model.predict(y_test)
         
         # accuracy check
-        mse = mean_squared_error(y_test_eval, y_pred)
+        mse = mean_squared_error(y_true, y_pred)
         rmse = mse ** (0.5)
-        mae = mean_absolute_error(y_test_eval, y_pred)
-        y_result = pd.DataFrame([y_test_eval,y_pred]).T.astype(float).round(3)
+        mae = mean_absolute_error(y_true, y_pred)
+        y_result = pd.DataFrame([y_true,y_pred]).T.astype(float).round(3)
         
         insert_timestamp = datetime.now().strftime('%F %T')
         y_eval_dict = {'rmse': round(rmse,3),
                        'mae': round(mae,3),
                        'task_name': task_name,
                        'prediction_name': prediction_name,
+                       #'columns_train': self.columns_train_str,
                        'insert_timestamp': insert_timestamp,
                        }
         y_eval_df = pd.DataFrame([y_eval_dict], columns=y_eval_dict.keys())
@@ -158,15 +165,7 @@ class StockTrainModel:
         with base_connect_database.engine_conn('postgre') as conn:
             y_eval_df.to_sql(EVAL_TABLE_NAME, con=conn.engine, index=False, if_exists='append')
             
-        return y_result, x_test_eval, rmse, mae
-
-# =============================================================================
-#     def save_model(self, model_path):
-#         """
-#         Save trained model to the specified path.
-#         """
-#         self.model.save_model(model_path)
-# =============================================================================
+        return y_result
         
     def plot_feature_importance(self):
         """
@@ -190,6 +189,7 @@ class StockTrainModel:
         sns.barplot(x='Importance', y='Feature', data=feature_importance, hue='Type', palette="viridis", dodge=True)
         plt.title('Feature Importance')
         plt.show()
+        
 # =============================================================================
 #     def plot_feature_importance(self):
 #         """
