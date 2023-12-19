@@ -40,21 +40,6 @@ class StockPredictionModel(train_main.StockTrainModel):
     def data_processing_prediction(self, date_range_data):
         _, x_test, _, y_high_test, _, y_low_test,_ ,y_diff_test = self.feature_engineering_pipline(date_range_data)
         
-# =============================================================================
-#         x_test = x_test[['industry_国防军工', 'open', 'industry_其他', 'high', 'close',
-#                'industry_休闲服务', 'industry_计算机', 'industry_建筑材料', 'industry_非银金融',
-#                'industry_公用事业', 'pctChg', 'industry_传媒', 'industry_化工',
-#                'industry_建筑装饰', 'industry_电子', 'industry_机械设备', 'isST_1',
-#                'industry_交通运输', 'industry_综合', 'turn', 'industry_房地产', 'preclose',
-#                'isST_0', 'pbMRQ', 'amount', 'dateDiff', 'industry_商业贸易',
-#                'industry_家用电器', 'industry_医药生物', 'industry_电气设备', 'industry_钢铁',
-#                'industry_轻工制造', 'tradestatus_1', 'industry_农林牧渔', 'industry_采掘',
-#                'peTTM', 'low', 'psTTM', 'primaryKey', 'industry_银行', 'industry_食品饮料',
-#                'industry_纺织服装', 'industry_通信', 'industry_有色金属', 'industry_汽车',
-#                'pcfNcfTTM', 'volume', 'tradestatus_0']]
-# =============================================================================
-        # model.dump_model()['feature_names']        
-        
         # 训练集的主键删除，测试集的主键抛出
         primary_key_test = x_test.pop('primaryKey')
         
