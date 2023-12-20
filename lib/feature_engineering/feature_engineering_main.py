@@ -90,7 +90,6 @@ class PerformFeatureEngineering:
         # lightgbm不支持str，把str类型转化为ont-hot
         date_range_data = pd.get_dummies(date_range_data, columns=['industry', 'tradestatus', 'isST', 'date_week'])
         
-        # 删除非训练字段
         feature_names = date_range_data.columns.tolist()
         
         # 明日最高/低值相对于今日收盘价的涨跌幅真实值
@@ -98,6 +97,7 @@ class PerformFeatureEngineering:
         date_range_data['rearLowPctChgReal'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
         date_range_data['rearDiffPctChgReal'] = date_range_data.rearHighPctChgReal - date_range_data.rearLowPctChgReal
         
+        # 删除非训练字段
         columns_to_drop = ['date', 'code', 'code_name', 'adjustflag', 'targetDate', 'rearLow', 'rearHigh']
         feature_names = list(set(feature_names) - set(columns_to_drop))
         return date_range_data, feature_names

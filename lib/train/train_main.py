@@ -94,7 +94,7 @@ class StockTrainModel:
                                                          'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close','volume',
                                                          'amount','turn', 'pctChg', 'remarks']]
         # 通过主键关联字段
-        related_name = ['date', 'code', 'code_name', 'isST']  # partition_date
+        related_name = ['date', 'code', 'code_name', 'isST', 'preclose']  # partition_date
         prediction_stock_price['primaryKey'] = primary_key_test
         prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name], on='primaryKey')
         

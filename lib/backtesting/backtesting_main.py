@@ -71,8 +71,8 @@ class StockPredictionModel(train_main.StockTrainModel):
         
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
         prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal','rearHighPctChgPred', 
-                                                         'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close','volume',
-                                                         'amount','turn', 'pctChg', 'remarks']]
+                                                         'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close', 'preclose',
+                                                         'volume', 'amount','turn', 'pctChg', 'remarks']]
                                                          
         # 通过主键关联字段
         related_name = ['date', 'code', 'code_name', 'isST']
@@ -114,3 +114,18 @@ if __name__ == '__main__':
     # path='E:/03_software_engineering/github/quantitative-finance/checkpoint'
     # model = lgb.Booster(model_file=f'{path}/prediction_stock_diff_model.txt')
     # model.dump_model()['feature_names']
+    
+    
+    # =============================================================================
+    #         x_test = x_test[['industry_国防军工', 'open', 'industry_其他', 'high', 'close',
+    #                'industry_休闲服务', 'industry_计算机', 'industry_建筑材料', 'industry_非银金融',
+    #                'industry_公用事业', 'pctChg', 'industry_传媒', 'industry_化工',
+    #                'industry_建筑装饰', 'industry_电子', 'industry_机械设备', 'isST_1',
+    #                'industry_交通运输', 'industry_综合', 'turn', 'industry_房地产', 'preclose',
+    #                'isST_0', 'pbMRQ', 'amount', 'dateDiff', 'industry_商业贸易',
+    #                'industry_家用电器', 'industry_医药生物', 'industry_电气设备', 'industry_钢铁',
+    #                'industry_轻工制造', 'tradestatus_1', 'industry_农林牧渔', 'industry_采掘',
+    #                'peTTM', 'low', 'psTTM', 'primaryKey', 'industry_银行', 'industry_食品饮料',
+    #                'industry_纺织服装', 'industry_通信', 'industry_有色金属', 'industry_汽车',
+    #                'pcfNcfTTM', 'volume', 'tradestatus_0']]
+    # =============================================================================
