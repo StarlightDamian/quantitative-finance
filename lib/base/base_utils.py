@@ -609,6 +609,8 @@ def file_is_open(file_path):
 # with open(path_file,'r',encoding='utf-8') as load_f:
 #     load_dict = json.load(load_f)
 
+#df['date_column'] = pd.to_datetime(df['date_column'])
+#df['year_column'] = df['date_column'].dt.year
 
 if __name__ == '__main__':
     # print(get_data_binary_list('2022-04-03', '2022-04-07'))

@@ -4,3 +4,4 @@ data/day/2023_07_20.feather
 data/k_day_19901219_20230808.feather
 *.feather
 backup
+lib

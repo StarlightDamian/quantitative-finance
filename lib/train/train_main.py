@@ -85,7 +85,7 @@ class StockTrainModel:
         y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal',
                                         1: 'rearDiffPctChgPred'})
 
-        x_test = x_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
+        x_test = x_test.reset_index(drop=True)  # The index is retained during the train_test_split process. The index is reset in this step.
         prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_test], axis=1)
         
         prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
@@ -201,11 +201,11 @@ class StockTrainModel:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行训练的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行训练的结束时间')
+    parser.add_argument('--date_start', type=str, default='2021-01-01', help='Start time for training')
+    parser.add_argument('--date_end', type=str, default='2022-03-01', help='end time of training')
     args = parser.parse_args()
 
-    print(f'进行训练的起始时间: {args.date_start}\n进行训练的结束时间: {args.date_end}')
+    print(f'Start time for training: {args.date_start}\nend time of training: {args.date_end}')
     
     # Load date range data
     #date_range_data = data_loading.feather_file_merge(args.date_start, args.date_end)

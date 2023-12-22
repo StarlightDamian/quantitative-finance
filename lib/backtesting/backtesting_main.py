@@ -96,8 +96,8 @@ class StockPredictionModel(train_main.StockTrainModel):
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2023-03-01', help='进行回测的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-12-01', help='进行回测的结束时间')
+    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行回测的起始时间')
+    parser.add_argument('--date_end', type=str, default='2023-06-01', help='进行回测的结束时间')
     args = parser.parse_args()
 
     print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')

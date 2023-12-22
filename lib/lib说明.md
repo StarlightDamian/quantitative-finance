@@ -15,11 +15,13 @@
 |          get_data          | **data_get_one_day_all_data** | 获取指定日期全部股票的日K线数据 |                                                             |
 |          get_data          |       **data_loading**        |            数据加载             |                                                             |
 |          get_data          |        **data_plate**         |       获取股票对应的板块        |                                                             |
+|         **other**          |                               |            其他代码             |                                                             |
 | **reinforcement_learning** |                               |         强化学习文件夹          |                                                             |
 |   reinforcement_learning   |  reinforcement_learning_ddpg  |            DDPG算法             |                                                             |
 |   reinforcement_learning   |  reinforcement_learning_sac   |             SAC算法             |                                                             |
 |        **strategy**        |                               |         量化策略文件夹          |                                                             |
 |         **trade**          |                               |           交易文件夹            |                                                             |
+|           trade            |        **trade_eval**         |       交易评估指标的计算        |                                                             |
 |           trade            |    **trade_handling_fee**     |           手续费计算            |                                                             |
 |           trade            | **trade_investment_strategy** |            投资策略             |                                                             |
 |           trade            |      **trade_portfolio**      |            投资组合             |            通过投资组合来获得更稳定的收益和复利             |
