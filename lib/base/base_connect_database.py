@@ -40,7 +40,7 @@ def engine_conn(type_database):
     功能：连接数据库
     备注：输出至数据库：to_csv()  if_exists:['append','replace','fail']#追加、删除原表后新增、啥都不干抛出一个 ValueError
     """
-    print(f"当前数据库：{type_database}")
+    #print(f"当前数据库：{type_database}")
     user = arg.conf(f'{type_database}_user')
     password = arg.conf(f'{type_database}_password')
     password = parse.quote_plus(str(password))  # 处理密码中带有@，被create_engine误分割导致的BUG
@@ -51,7 +51,6 @@ def engine_conn(type_database):
     database_name = database_dict.get(f"{type_database}")
     user_password_host_port_database_str = f"{user}:{password}@{host}:{port}/{database}"
 
-
     if type_database == 'hive':
         auth = arg.conf('hive_auth')
         db_url = f"{database_name}://{user_password_host_port_database_str}?auth={auth}"
@@ -59,7 +58,6 @@ def engine_conn(type_database):
         db_url = f"{database_name}://{user_password_host_port_database_str}"
 
     return DatabaseConnection(db_url)
-
 
 if __name__ == '__main__':
     # print(path)

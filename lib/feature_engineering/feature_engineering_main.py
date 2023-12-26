@@ -37,8 +37,6 @@ class PerformFeatureEngineering:
         self.code_and_industry_dict = stock_industry.set_index('code')['industry'].to_dict()
         
         self.one_hot_encoder = OneHotEncoder(sparse_output=False)
-        # self.target_names = ['rearHighPctChgPred', 'rearLowPctChgPred', 'rearDiffPctChgPred']
-        self.target_names = ['rearHighPctChgReal', 'rearLowPctChgReal', 'rearDiffPctChgReal']
         
     def specified_trading_day(self, pre_date_num=1):
         """
@@ -58,14 +56,14 @@ class PerformFeatureEngineering:
         :return: 包含待预测值的DataFrame
         """
         # 待预测的指定交易日的主键、价格
-        predict_pd = date_range_data[['targetDate', 'code', 'high', 'low']]
-        predict_pd['primaryKey'] = (predict_pd['targetDate']+predict_pd['code']).apply(base_utils.md5_str)
-        predict_pd = predict_pd.rename(columns={'high': 'rearHigh',
-                                                'low': 'rearLow'})
-        predict_pd = predict_pd[['primaryKey', 'rearHigh', 'rearLow']]
+        predict_pd = date_range_data[['target_date', 'code', 'high', 'low']]
+        predict_pd['primary_key'] = (predict_pd['target_date']+predict_pd['code']).apply(base_utils.md5_str)
+        predict_pd = predict_pd.rename(columns={'high': 'rear_high',
+                                                'low': 'rear_low'})
+        predict_pd = predict_pd[['primary_key', 'rear_high', 'rear_low']]
         
         # 关联对应后置最低最高价格
-        date_range_data = pd.merge(date_range_data, predict_pd, on='primaryKey')
+        date_range_data = pd.merge(date_range_data, predict_pd, on='primary_key')
         # print(date_range_data[date_range_data.code=='sz.399997'][['primaryKey', 'date','rearDate','high','rearHigh']]) #观察数据
         
         return date_range_data
@@ -78,7 +76,7 @@ class PerformFeatureEngineering:
         """
         ## 训练特征
         # 特征: 日期差异作为日期特征
-        date_range_data['dateDiff'] = (pd.to_datetime(date_range_data.targetDate) - pd.to_datetime(date_range_data.date)).dt.days
+        date_range_data['date_diff'] = (pd.to_datetime(date_range_data.target_date) - pd.to_datetime(date_range_data.date)).dt.days
         
         # 特征: 行业
         date_range_data['industry'] = date_range_data.code.map(self.code_and_industry_dict)
@@ -93,12 +91,12 @@ class PerformFeatureEngineering:
         feature_names = date_range_data.columns.tolist()
         
         # 明日最高/低值相对于今日收盘价的涨跌幅真实值
-        date_range_data['rearHighPctChgReal'] = ((date_range_data['rearHigh'] - date_range_data['close']) / date_range_data['close']) * 100
-        date_range_data['rearLowPctChgReal'] = ((date_range_data['rearLow'] - date_range_data['close']) / date_range_data['close']) * 100
-        date_range_data['rearDiffPctChgReal'] = date_range_data.rearHighPctChgReal - date_range_data.rearLowPctChgReal
+        date_range_data['rear_high_real'] = ((date_range_data['rear_high'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rear_low_real'] = ((date_range_data['rear_low'] - date_range_data['close']) / date_range_data['close']) * 100
+        date_range_data['rear_diff_real'] = date_range_data.rear_high_real - date_range_data.rear_low_real
         
         # 删除非训练字段
-        columns_to_drop = ['date', 'code', 'code_name', 'adjustflag', 'targetDate', 'rearLow', 'rearHigh']
+        columns_to_drop = ['date', 'code', 'code_name', 'adjustflag', 'target_date', 'rear_low', 'rear_high']
         feature_names = list(set(feature_names) - set(columns_to_drop))
         return date_range_data, feature_names
     
@@ -106,35 +104,18 @@ class PerformFeatureEngineering:
         # 构建数据集
         
         feature_names = sorted(feature_names) # 输出有序标签
-        print(f'feature: {feature_names}')
+        #print(f'feature_names_engineering:\n {feature_names}')
         feature_df = date_range_data[feature_names]
         
-        #target_df = date_range_data[self.target_names]  # 机器学习预测值
-        
-        date_range_high_dict = {'data': np.array(feature_df.to_records(index=False)),  # 不使用 feature_df.values,使用结构化数组保存每一列的类型
+        target_names = ['rear_low_real', 'rear_high_real', 'rear_diff_real']
+        date_range_dict = {'data': np.array(feature_df.to_records(index=False)),  # 不使用 feature_df.values,使用结构化数组保存每一列的类型
                          'feature_names': feature_names,
-                         'target': date_range_data[self.target_names[0]].values,
-                         'target_names': [self.target_names[0]],
+                         'target': date_range_data[target_names].values,  # 机器学习预测值
+                         'target_names': [target_names],
                          }
-        date_range_high_bunch = Bunch(**date_range_high_dict)
-        
-        # 最低价格数据集
-        date_range_low_dict = {'data': np.array(feature_df.to_records(index=False)),
-                         'feature_names': feature_names,
-                         'target': date_range_data[self.target_names[1]].values,
-                         'target_names': [self.target_names[1]],
-                         }
-        date_range_low_bunch = Bunch(**date_range_low_dict)
-        
-        #差值数据集
-        date_range_diff_dict = {'data': np.array(feature_df.to_records(index=False)),
-                         'feature_names': feature_names,
-                         'target': date_range_data[self.target_names[2]].values,
-                         'target_names': [self.target_names[2]],
-                         }
-        date_range_diff_bunch = Bunch(**date_range_diff_dict)
-        
-        return date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch
+        date_range_bunch = Bunch(**date_range_dict)
+
+        return date_range_bunch
     
     def feature_engineering_pipline(self, date_range_data):
         """
@@ -143,7 +124,7 @@ class PerformFeatureEngineering:
         :return: 包含数据集的Bunch
         """
         trading_day_target_dict = self.specified_trading_day(pre_date_num=1)
-        date_range_data['targetDate'] = date_range_data.date.map(trading_day_target_dict)
+        date_range_data['target_date'] = date_range_data.date.map(trading_day_target_dict)
         date_range_data = self.create_values_to_predicted(date_range_data)
         
         # 构建数据集
@@ -158,17 +139,17 @@ class PerformFeatureEngineering:
         """
         # 构建数据集
         date_range_data, feature_names = self.feature_engineering_pipline(date_range_data)
-        date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch = self.build_dataset(date_range_data, feature_names)
-        return date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch
+        date_range_bunch = self.build_dataset(date_range_data, feature_names)
+        return date_range_bunch
     
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2023-01-01', help='进行回测的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-03-01', help='进行回测的结束时间')
+    parser.add_argument('--date_start', type=str, default='2023-01-01', help='When to start feature engineering')
+    parser.add_argument('--date_end', type=str, default='2023-03-01', help='End time for feature engineering')
     args = parser.parse_args()
     
-    print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
+    print(f'When to start feature engineering: {args.date_start}\nEnd time for feature engineering: {args.date_end}')
     
     # 获取日期段数据
     with base_connect_database.engine_conn('postgre') as conn:

@@ -8,6 +8,9 @@ from datetime import datetime
 import argparse
 from sqlalchemy import create_engine
 
+import joblib
+import numpy as np
+from sklearn.multioutput import MultiOutputRegressor
 import seaborn as sns
 import matplotlib.pyplot as plt
 import lightgbm as lgb
@@ -21,93 +24,24 @@ from feature_engineering import feature_engineering_main
 from base import base_connect_database
 
 # Constants
-#MODEL_PATH = f'{path}/checkpoint/prediction_stock_model.txt'
+MULTIOUTPUT_MODEL_PATH = f'{path}/checkpoint/prediction_stock_lgbm_model.joblib'
 PREDICTION_PRICE_OUTPUT_CSV_PATH = f'{path}/data/prediction_stock_price_train.csv'
 TRAIN_TABLE_NAME = 'prediction_stock_price_train'
 EVAL_TABLE_NAME = 'eval_train'
 TEST_SIZE = 0.15 #数据集分割中测试集占比
-SEED = 2023 #保证最大值和最小值的数据部分保持一致
+#SEED = 2023 #保证最大值和最小值的数据部分保持一致
 
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
-
 class StockTrainModel:
-    def __init__(self, date_start, date_end):
+    def __init__(self):
         """
         Initialize StockTrainModel object, including feature engineering and database connection.
         """
         self.perform_feature_engineering = feature_engineering_main.PerformFeatureEngineering()
-        self.model = None
-        self.date_start = None
-        self.date_end = None
-        #self.columns_train_str = None
+        self.model_multioutput_regressor = None
         
-    def load_dataset(self, date_range_bunch, test_size=TEST_SIZE, random_state=SEED):
-        x, y = date_range_bunch.data, date_range_bunch.target
-        columns_train = date_range_bunch.feature_names
-        #self.columns_train_str = ','.join(columns_train)
-        x_df = pd.DataFrame(x, columns=columns_train)
-        x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=test_size, random_state=random_state)
-        return x_train, x_test, y_train, y_test
-    
-    def feature_engineering_pipline(self, date_range_data):
-        """
-        Execute feature engineering pipeline and return datasets for training and testing.
-        """
-        date_range_high_bunch, date_range_low_bunch, date_range_diff_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
-        
-        x_train, x_test, y_high_train, y_high_test = self.load_dataset(date_range_high_bunch)
-        _, _, y_low_train, y_low_test = self.load_dataset(date_range_low_bunch)
-        _, _, y_diff_train, y_diff_test = self.load_dataset(date_range_diff_bunch)
-        
-        return x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test, y_diff_train, y_diff_test
-
-    def data_processing_pipline(self, date_range_data):
-        x_train, x_test, y_high_train, y_high_test, y_low_train, y_low_test, y_diff_train, y_diff_test = self.feature_engineering_pipline(date_range_data)
-        
-        # 训练集的主键删除，测试集的主键抛出
-        del x_train['primaryKey']
-        primary_key_test = x_test.pop('primaryKey').reset_index(drop=True)
-        
-        self.train_model(x_train, y_high_train, f'{path}/checkpoint/prediction_stock_high_model.txt')
-        y_high = self.prediction_y(y_high_test, x_test, task_name='test', prediction_name='high')
-        y_high = y_high.rename(columns={0: 'rearHighPctChgReal',
-                                        1: 'rearHighPctChgPred'})
-        
-        self.train_model(x_train, y_low_train, f'{path}/checkpoint/prediction_stock_low_model.txt')
-        y_low = self.prediction_y(y_low_test, x_test, task_name='test', prediction_name='low')
-        y_low = y_low.rename(columns={0: 'rearLowPctChgReal',
-                                      1: 'rearLowPctChgPred'})
-        
-        self.train_model(x_train, y_diff_train, f'{path}/checkpoint/prediction_stock_diff_model.txt')
-        y_diff = self.prediction_y(y_diff_test, x_test , task_name='test', prediction_name='diff')
-        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal',
-                                        1: 'rearDiffPctChgPred'})
-
-        x_test = x_test.reset_index(drop=True)  # The index is retained during the train_test_split process. The index is reset in this step.
-        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_test], axis=1)
-        
-        prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
-        
-        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal', 'rearHighPctChgPred',
-                                                         'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close','volume',
-                                                         'amount','turn', 'pctChg', 'remarks']]
-        # 通过主键关联字段
-        related_name = ['date', 'code', 'code_name', 'isST', 'preclose']  # partition_date
-        prediction_stock_price['primaryKey'] = primary_key_test
-        prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name], on='primaryKey')
-        
-        with base_connect_database.engine_conn('postgre') as conn:
-            prediction_stock_price_related['insert_timestamp'] = datetime.now().strftime('%F %T')
-            prediction_stock_price_related.to_sql(TRAIN_TABLE_NAME, con=conn.engine, index=False, if_exists='replace')
-        
-        return prediction_stock_price_related
-
-    def train_model(self, x_train, y_train, model_path):
-        """
-        Train LightGBM model.
-        """
         params = {
             'task': 'train',
             'boosting': 'gbdt',
@@ -117,14 +51,82 @@ class StockTrainModel:
             'metric': ['mae'], # 模型通过mae进行优化, root_mean_squared_error进行评估。, 'root_mean_squared_error'
             'verbose': -1, # 控制输出信息的详细程度，-1 表示不输出任何信息
         }
-
         # loading data
-        lgb_train = lgb.Dataset(x_train, y_train)
+        lgb_regressor = lgb.LGBMRegressor(**params)
+        self.model_multioutput_regressor = MultiOutputRegressor(lgb_regressor)
+        
+    def load_dataset(self, date_range_bunch, test_size=TEST_SIZE):#, random_state=SEED
+        x, y = date_range_bunch.data, date_range_bunch.target
+        x_df = pd.DataFrame(x, columns=date_range_bunch.feature_names)
+        x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=test_size)#, random_state=random_state
+        x_test = x_test.reset_index(drop=True)  # The index is retained during the train_test_split process. The index is reset in this step.
+        return x_train, x_test, y_train, y_test
+    
+    def feature_engineering_pipline(self, date_range_data):
+        """
+        Execute feature engineering pipeline and return datasets for training and testing.
+        """
+        date_range_bunch = self.perform_feature_engineering.feature_engineering_dataset_pipline(date_range_data)
+        #print('date_range_bunch', date_range_bunch)
+        x_train, x_test, y_train, y_test = self.load_dataset(date_range_bunch)
+        return x_train, x_test, y_train, y_test
 
+    def field_handle(self, y_result, x_test):
+
+        y_result = y_result.rename(columns={0: 'rear_low_real',
+                                        1: 'rear_high_real',
+                                        2: 'rear_diff_real',
+                                        3: 'rear_low_pred',
+                                        4: 'rear_high_pred',
+                                        5: 'rear_diff_pred',})
+        
+        prediction_stock_price  = pd.concat([y_result, x_test], axis=1)
+        
+        prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
+        
+        prediction_stock_price = prediction_stock_price[['rear_low_real', 'rear_low_pred', 'rear_high_real', 'rear_high_pred', 'rear_diff_real', 'rear_diff_pred',
+                                                         'open','high', 'low', 'close','volume','amount','turn', 'pctChg', 'remarks']]
+                                                         
+
+
+        return prediction_stock_price
+
+    def data_processing_pipline(self, date_range_data):
+        x_train, x_test, y_train, y_test = self.feature_engineering_pipline(date_range_data)
+
+        self.train_model(x_train, y_train)
+        
+        primary_key_test = x_test.pop('primary_key').reset_index(drop=True)
+        y_result = self.prediction_y(y_test, x_test, task_name='eval')
+        
+        prediction_stock_price = self.field_handle(y_result, x_test)
+        
+        # 通过主键关联字段
+        related_name = ['date', 'code', 'code_name', 'preclose', 'isST']  # partition_date
+        prediction_stock_price['primary_key'] = primary_key_test
+        prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primary_key']+related_name], on='primary_key')
+        
+        with base_connect_database.engine_conn('postgre') as conn:
+            prediction_stock_price_related['insert_timestamp'] = datetime.now().strftime('%F %T')
+            prediction_stock_price_related.to_sql(TRAIN_TABLE_NAME, con=conn.engine, index=False, if_exists='replace')
+        
+        return prediction_stock_price_related
+
+    def train_model(self, x_train, y_train):
+        """
+        Train LightGBM model.
+        """
+        # feature
+        model_metadata = {'primary_key_name': 'primary_key'}
+        del x_train[model_metadata['primary_key_name']]
+        model_metadata['feature_names'] = x_train.columns
+        
         # fitting the model
-        self.model = lgb.train(params, train_set=lgb_train)
-        self.model.save_model(model_path)
-
+        self.model_multioutput_regressor.fit(x_train, y_train)
+        
+        # save_model
+        joblib.dump((self.model_multioutput_regressor, model_metadata), MULTIOUTPUT_MODEL_PATH)
+        
 # =============================================================================
 #     def evaluate_x(self, lgb_train, params):
 #         # 通过训练模型本身的参数输出对应的评估指标
@@ -139,70 +141,37 @@ class StockTrainModel:
 #         return cv_results
 # =============================================================================
 
-    def prediction_y(self, y_true, y_test, task_name=None, prediction_name=None):
+    def prediction_y(self, y_test_true, x_test, task_name=None): #, prediction_name=None
         """
         evaluate_model
         Evaluate model performance, calculate RMSE and MAE, output results to the database, and return DataFrame.
         """
-        y_pred = self.model.predict(y_test)
+        ## pred
+        y_test_pred = self.model_multioutput_regressor.predict(x_test)
+        y_result = pd.DataFrame(np.hstack((y_test_true, y_test_pred)))
         
-        # accuracy check
-        mse = mean_squared_error(y_true, y_pred)
+        ## eval
+        mse = mean_squared_error(y_test_true, y_test_pred)
         rmse = mse ** (0.5)
-        mae = mean_absolute_error(y_true, y_pred)
-        y_result = pd.DataFrame([y_true,y_pred]).T.astype(float).round(3)
+        mae = mean_absolute_error(y_test_true, y_test_pred)
         
         insert_timestamp = datetime.now().strftime('%F %T')
         y_eval_dict = {'rmse': round(rmse,3),
                        'mae': round(mae,3),
                        'task_name': task_name,
-                       'prediction_name': prediction_name,
-                       #'columns_train': self.columns_train_str,
                        'insert_timestamp': insert_timestamp,
                        }
         y_eval_df = pd.DataFrame([y_eval_dict], columns=y_eval_dict.keys())
         
         with base_connect_database.engine_conn('postgre') as conn:
             y_eval_df.to_sql(EVAL_TABLE_NAME, con=conn.engine, index=False, if_exists='append')
-            
         return y_result
-        
-    def plot_feature_importance(self):
-        """
-        Plot feature importance using Seaborn.
-        """
-        feature_importance_split = pd.DataFrame({
-            'Feature': self.model.feature_name(),
-            'Importance': self.model.feature_importance(importance_type='split'),
-            'Type': 'split'
-        })
-        
-        feature_importance_gain = pd.DataFrame({
-            'Feature': self.model.feature_name(),
-            'Importance': self.model.feature_importance(importance_type='gain'),
-            'Type': 'gain'
-        })
 
-        feature_importance = pd.concat([feature_importance_split, feature_importance_gain], ignore_index=True)
-
-        plt.figure(figsize=(12, 6))
-        sns.barplot(x='Importance', y='Feature', data=feature_importance, hue='Type', palette="viridis", dodge=True)
-        plt.title('Feature Importance')
-        plt.show()
-        
-# =============================================================================
-#     def plot_feature_importance(self):
-#         """
-#         Plot feature importance.
-#         """
-#         lgb.plot_importance(self.model, importance_type='split', figsize=(10, 6), title='Feature importance (split)')
-#         lgb.plot_importance(self.model, importance_type='gain', figsize=(10, 6), title='Feature importance (gain)')
-# =============================================================================
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2021-01-01', help='Start time for training')
-    parser.add_argument('--date_end', type=str, default='2022-03-01', help='end time of training')
+    parser.add_argument('--date_start', type=str, default='2018-01-01', help='Start time for training')
+    parser.add_argument('--date_end', type=str, default='2020-01-01', help='end time of training')
     args = parser.parse_args()
 
     print(f'Start time for training: {args.date_start}\nend time of training: {args.date_end}')
@@ -212,7 +181,7 @@ if __name__ == '__main__':
     with base_connect_database.engine_conn('postgre') as conn:
         date_range_data = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
     
-    stock_model = StockTrainModel(date_start=args.date_start, date_end=args.date_end)
+    stock_model = StockTrainModel()#date_start=args.date_start, date_end=args.date_end
     prediction_stock_price_related = stock_model.data_processing_pipline(date_range_data)
     
     # Rename and save to CSV file
@@ -224,12 +193,12 @@ if __name__ == '__main__':
                                                                                      'amount': '成交金额',
                                                                                      'turn': '换手率',
                                                                                      'pctChg': '涨跌幅',
-                                                                                     'rearLowPctChgReal': '明天_最低价幅_真实值',
-                                                                                     'rearLowPctChgPred': '明天_最低价幅_预测值',
-                                                                                     'rearHighPctChgReal': '明天_最高价幅_真实值',
-                                                                                     'rearHighPctChgPred': '明天_最高价幅_预测值',
-                                                                                     'rearDiffPctChgReal': '明天_变化价幅_真实值',
-                                                                                     'rearDiffPctChgPred': '明天_变化价幅_预测值',
+                                                                                     'rear_low_real': '明天_最低价幅_真实值',
+                                                                                     'rear_low_pred': '明天_最低价幅_预测值',
+                                                                                     'rear_high_real': '明天_最高价幅_真实值',
+                                                                                     'rear_high_pred': '明天_最高价幅_预测值',
+                                                                                     'rear_diff_real': '明天_变化价幅_真实值',
+                                                                                     'rear_diff_pred': '明天_变化价幅_预测值',
                                                                                      'remarks': '备注',
                                                                                      'date': '日期',
                                                                                     'code': '股票代码',
@@ -242,7 +211,7 @@ if __name__ == '__main__':
 
     # Plot feature importance
     #stock_model.plot_feature_importance()
-    stock_model.plot_feature_importance()
+    #stock_model.plot_feature_importance()
 
 
 
@@ -271,4 +240,68 @@ if __name__ == '__main__':
 #     优点：对异常值不敏感，因为它使用的是误差的绝对值。
 #     缺点：不像 RMSE 那样对大误差给予更大的权重。
 # 选择哪个指标通常取决于你对模型误差的偏好。如果你更关注大误差，可能会选择使用 RMSE。如果你希望对所有误差都保持相对平等的关注，那么 MAE 可能是更好的选择。
+# =============================================================================
+# =============================================================================
+#     def plot_feature_importance(X_train):
+#         """
+#         Plot feature importance using Seaborn.
+#     
+#         Parameters:
+#         - model_multioutput_regressor: The MultiOutputRegressor object.
+#         - X_train: The training data used to fit the model.
+#         """
+#         # Assuming the underlying estimator is a LightGBM model
+#         lgb_model = self.model_multioutput_regressor.estimators_[0].estimator_
+#     
+#         feature_importance_split = pd.DataFrame({
+#             'Feature': X_train.columns,  # Assuming X_train is a DataFrame with named columns
+#             'Importance': lgb_model.feature_importance(importance_type='split'),
+#             'Type': 'split'
+#         })
+#     
+#         feature_importance_gain = pd.DataFrame({
+#             'Feature': X_train.columns,
+#             'Importance': lgb_model.feature_importance(importance_type='gain'),
+#             'Type': 'gain'
+#         })
+#     
+#         feature_importance = pd.concat([feature_importance_split, feature_importance_gain], ignore_index=True)
+#     
+#         plt.figure(figsize=(12, 6))
+#         sns.barplot(x='Importance', y='Feature', data=feature_importance, hue='Type', palette="viridis", dodge=True)
+#         plt.title('Feature Importance')
+#         plt.show()
+# =============================================================================
+# =============================================================================
+#     def plot_feature_importance(self):
+#         """
+#         Plot feature importance using Seaborn.
+#         """
+#         feature_importance_split = pd.DataFrame({
+#             'Feature': self.model_multioutput_regressor.feature_name(),
+#             'Importance': self.model_multioutput_regressor.feature_importance(importance_type='split'),
+#             'Type': 'split'
+#         })
+#         
+#         feature_importance_gain = pd.DataFrame({
+#             'Feature': self.model_multioutput_regressor.feature_name(),
+#             'Importance': self.model_multioutput_regressor.feature_importance(importance_type='gain'),
+#             'Type': 'gain'
+#         })
+# 
+#         feature_importance = pd.concat([feature_importance_split, feature_importance_gain], ignore_index=True)
+# 
+#         plt.figure(figsize=(12, 6))
+#         sns.barplot(x='Importance', y='Feature', data=feature_importance, hue='Type', palette="viridis", dodge=True)
+#         plt.title('Feature Importance')
+#         plt.show()
+#         
+# =============================================================================
+# =============================================================================
+#     def plot_feature_importance(self):
+#         """
+#         Plot feature importance.
+#         """
+#         lgb.plot_importance(self.model, importance_type='split', figsize=(10, 6), title='Feature importance (split)')
+#         lgb.plot_importance(self.model, importance_type='gain', figsize=(10, 6), title='Feature importance (gain)')
 # =============================================================================

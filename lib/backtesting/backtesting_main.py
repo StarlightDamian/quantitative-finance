@@ -7,77 +7,57 @@ Created on Thu Aug 24 16:04:00 2023
 from datetime import datetime
 import argparse
 
+import joblib
 import pandas as pd
-import lightgbm as lgb
 
 from __init__ import path
 from base import base_connect_database
 from train import train_main
 
-#MODEL_PATH = f'{path}/checkpoint/prediction_stock_model.txt'
 TEST_TABLE_NAME = 'prediction_stock_price_test'
+MULTIOUTPUT_MODEL_PATH = f'{path}/checkpoint/prediction_stock_lgbm_model.joblib'
+
 
 class StockPredictionModel(train_main.StockTrainModel):
-    def __init__(self, date_start, date_end):
+    def __init__(self):#, date_start, date_end
         """
         Initialize StockPredictionModel object, including feature engineering and database connection.
         """
-        super().__init__(date_start, date_end)
+        super().__init__()#date_start, date_end
         
     def load_model(self, model_path):
         """
         Load model from the specified path.
         """
-        self.model = lgb.Booster(model_file=model_path)
-
+        self.model_multioutput_regressor, model_metadata = joblib.load(MULTIOUTPUT_MODEL_PATH)
+        feature_names = model_metadata['feature_names']
+        primary_key_name = model_metadata['primary_key_name']
+        return feature_names, primary_key_name
+        
     def load_dataset(self, date_range_bunch):
         x, y = date_range_bunch.data, date_range_bunch.target
         x_test = pd.DataFrame(x, columns=date_range_bunch.feature_names)
         y_test = pd.DataFrame(y, columns=date_range_bunch.target_names)
-        y_test = y_test.values.flatten()
         return None, x_test, None, y_test
-
+    
+    
     def data_processing_prediction(self, date_range_data):
-        _, x_test, _, y_high_test, _, y_low_test,_ ,y_diff_test = self.feature_engineering_pipline(date_range_data)
+        #global date_range_data1
+        #date_range_data1 = date_range_data
+        _, x_test, _, y_test = self.feature_engineering_pipline(date_range_data)
         
-        # 训练集的主键删除，测试集的主键抛出
-        primary_key_test = x_test.pop('primaryKey')
+        feature_names, primary_key_name = self.load_model(MULTIOUTPUT_MODEL_PATH)
         
-        #stock_model.train_model(x_train, y_high_train)
-        #self.load_model(MODEL_PATH)
-        self.load_model(f'{path}/checkpoint/prediction_stock_high_model.txt')
-        feature_names = self.model.dump_model()['feature_names']
-        x_test = x_test[feature_names]
-        y_high = self.prediction_y(y_high_test, x_test, task_name='test', prediction_name='high')
-        y_high = y_high.rename(columns={0: 'rearHighPctChgReal',
-                                        1: 'rearHighPctChgPred'})
+        primary_key_test = x_test.pop('primary_key').reset_index(drop=True)
+        x_test = x_test.reindex(columns=feature_names, fill_value=False)  # Pop first, then reindex
         
-        self.load_model(f'{path}/checkpoint/prediction_stock_low_model.txt')
-        feature_names = self.model.dump_model()['feature_names']
-        x_test = x_test[feature_names]
-        y_low = self.prediction_y(y_low_test, x_test, task_name='test', prediction_name='low')
-        y_low = y_low.rename(columns={0: 'rearLowPctChgReal',
-                                      1: 'rearLowPctChgPred'})
-
-        self.load_model(f'{path}/checkpoint/prediction_stock_diff_model.txt')
-        feature_names = self.model.dump_model()['feature_names']
-        x_test = x_test[feature_names]
-        y_diff = self.prediction_y(y_diff_test, x_test, task_name='test', prediction_name='diff')
-        y_diff = y_diff.rename(columns={0: 'rearDiffPctChgReal',
-                                        1: 'rearDiffPctChgPred'})
-
-        x_test = x_test.reset_index(drop=True)  # train_test_split过程中是保留了index的，在这一步重置index
-        prediction_stock_price  = pd.concat([y_high, y_low, y_diff, x_test], axis=1)
+        y_result = self.prediction_y(y_test, x_test, task_name='test')
+        prediction_stock_price = self.field_handle(y_result, x_test)
         
-        prediction_stock_price['remarks'] = prediction_stock_price.apply(lambda row: 'limit_up' if row['high'] == row['low'] else '', axis=1)
-        prediction_stock_price = prediction_stock_price[['rearLowPctChgReal', 'rearLowPctChgPred', 'rearHighPctChgReal','rearHighPctChgPred', 
-                                                         'rearDiffPctChgReal', 'rearDiffPctChgPred', 'open','high', 'low', 'close', 'preclose',
-                                                         'volume', 'amount','turn', 'pctChg', 'remarks']]
-                                                         
         # 通过主键关联字段
-        related_name = ['date', 'code', 'code_name', 'isST']
-        prediction_stock_price['primaryKey'] = primary_key_test
-        prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primaryKey']+related_name],on='primaryKey')
+        related_name = ['date', 'code', 'code_name', 'preclose', 'isST']  # partition_date
+        prediction_stock_price['primary_key'] = primary_key_test
+        prediction_stock_price_related = pd.merge(prediction_stock_price, date_range_data[['primary_key']+related_name], on='primary_key')
         
         with base_connect_database.engine_conn('postgre') as conn:
             prediction_stock_price_related['insert_timestamp'] = datetime.now().strftime('%F %T')
@@ -96,18 +76,18 @@ class StockPredictionModel(train_main.StockTrainModel):
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--date_start', type=str, default='2022-03-01', help='进行回测的起始时间')
-    parser.add_argument('--date_end', type=str, default='2023-06-01', help='进行回测的结束时间')
+    parser.add_argument('--date_start', type=str, default='2020-01-01', help='Start time for backtesting')
+    parser.add_argument('--date_end', type=str, default='2023-01-01', help='End time for backtesting')
     args = parser.parse_args()
 
-    print(f'进行回测的起始时间: {args.date_start}\n进行回测的结束时间: {args.date_end}')
+    print(f'Start time for backtesting: {args.date_start}\nEnd time for backtesting: {args.date_end}')
     
     with base_connect_database.engine_conn('postgre') as conn:
         backtest_df = pd.read_sql(f"SELECT * FROM history_a_stock_k_data WHERE date >= '{args.date_start}' AND date < '{args.date_end}'", con=conn.engine)
     
     print(backtest_df)
     
-    stock_prediction_model = StockPredictionModel(date_start=args.date_start, date_end=args.date_end)
+    stock_prediction_model = StockPredictionModel()#date_start=args.date_start, date_end=args.date_end
     prediction_stock_price_related = stock_prediction_model.data_processing_prediction(backtest_df)
     
     
