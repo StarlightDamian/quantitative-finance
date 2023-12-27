@@ -67,7 +67,9 @@ class PerformFeatureEngineering:
         # print(date_range_data[date_range_data.code=='sz.399997'][['primaryKey', 'date','rearDate','high','rearHigh']]) #观察数据
         
         return date_range_data
-        
+    
+    #def generate_dictionary
+    
     def build_features(self, date_range_data):
         """
         构建数据集，将DataFrame转换为Bunch
@@ -75,15 +77,31 @@ class PerformFeatureEngineering:
         :return: 包含数据集的Bunch
         """
         ## 训练特征
-        # 特征: 日期差异作为日期特征
+        
+        # 特征: 基础_距离上一次开盘天数
         date_range_data['date_diff'] = (pd.to_datetime(date_range_data.target_date) - pd.to_datetime(date_range_data.date)).dt.days
         
-        # 特征: 行业
+        # 特征：基础_星期
+        date_range_data['date_week'] = pd.to_datetime(date_range_data['date'], format='%Y-%m-%d').dt.day_name()
+        
+        # 特征: 宏观大盘_大盘成交量
+        sh000001_map_dict = date_range_data[date_range_data.code=='sh.000001'][['date', 'amount']].set_index('date')['amount'].to_dict()
+        date_range_data['macro_sh000001'] = date_range_data['date'].map(sh000001_map_dict)  # 上证综合指数
+        
+        sz399101_map_dict = date_range_data[date_range_data.code=='sz.399101'][['date', 'amount']].set_index('date')['amount'].to_dict()
+        date_range_data['macro_sz399101'] = date_range_data['date'].map(sz399101_map_dict) # 中小企业综合指数 
+        
+        sz399102_map_dict = date_range_data[date_range_data.code=='sz.399102'][['date', 'amount']].set_index('date')['amount'].to_dict()
+        date_range_data['macro_sz399102'] = date_range_data['date'].map(sz399102_map_dict) # 创业板综合指数
+        
+        sz399106_map_dict = date_range_data[date_range_data.code=='sz.399106'][['date', 'amount']].set_index('date')['amount'].to_dict()
+        date_range_data['macro_sz399106'] = date_range_data['date'].map(sz399106_map_dict)  # 深证综合指数
+        
+        # 特征: 中观板块_行业
         date_range_data['industry'] = date_range_data.code.map(self.code_and_industry_dict)
         date_range_data['industry'] = date_range_data['industry'].replace(['', pd.NA], '其他')
         
-        # 特征：星期
-        date_range_data['date_week'] = pd.to_datetime(date_range_data['date'], format='%Y-%m-%d').dt.day_name()
+
         
         # lightgbm不支持str，把str类型转化为ont-hot
         date_range_data = pd.get_dummies(date_range_data, columns=['industry', 'tradestatus', 'isST', 'date_week'])

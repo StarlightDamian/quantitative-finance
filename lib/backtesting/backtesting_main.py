@@ -40,11 +40,10 @@ class StockPredictionModel(train_main.StockTrainModel):
         y_test = pd.DataFrame(y, columns=date_range_bunch.target_names)
         return None, x_test, None, y_test
     
-    
     def data_processing_prediction(self, date_range_data):
         #global date_range_data1
         #date_range_data1 = date_range_data
-        _, x_test, _, y_test = self.feature_engineering_pipline(date_range_data)
+        _, x_test, _, y_test = self.feature_engineering_train_pipline(date_range_data)
         
         feature_names, primary_key_name = self.load_model(MULTIOUTPUT_MODEL_PATH)
         

@@ -13,24 +13,24 @@ import baostock as bs
 
 from __init__ import path
 from base import base_connect_database, base_arguments
-from get_data import data_plate
+from get_data import data_plate, data_history_a_stock_k_data
 
 def custom_date(date=None):
     """
-    功能：直接执行当日的每日任务
+    功能：Directly execute daily tasks for the day
     """
     try:
         conn_pg = base_connect_database.engine_conn('postgre')
-        lg = bs.login()  # 登陆系统
+        lg = bs.login()
         
         data_plate.get_base_data(data_type='交易日', conn=conn_pg.engine)
         data_plate.get_base_data(data_type='行业分类', conn=conn_pg.engine)
         data_plate.get_base_data(data_type='证券资料', conn=conn_pg.engine)
         data_plate.get_base_data(data_type='证券代码', conn=conn_pg.engine)
     except Exception as e:
-        print(f"登录获取交易日数据异常: {e}")
+        print(f"Exception when logging in to obtain transaction day data: {e}")
     finally:
-        bs.logout()  # 登出系统
+        bs.logout()
 
 def time():
     """

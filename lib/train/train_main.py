@@ -62,7 +62,7 @@ class StockTrainModel:
         x_test = x_test.reset_index(drop=True)  # The index is retained during the train_test_split process. The index is reset in this step.
         return x_train, x_test, y_train, y_test
     
-    def feature_engineering_pipline(self, date_range_data):
+    def feature_engineering_train_pipline(self, date_range_data):
         """
         Execute feature engineering pipeline and return datasets for training and testing.
         """
@@ -92,7 +92,7 @@ class StockTrainModel:
         return prediction_stock_price
 
     def data_processing_pipline(self, date_range_data):
-        x_train, x_test, y_train, y_test = self.feature_engineering_pipline(date_range_data)
+        x_train, x_test, y_train, y_test = self.feature_engineering_train_pipline(date_range_data)
 
         self.train_model(x_train, y_train)
         

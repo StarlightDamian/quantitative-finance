@@ -45,6 +45,18 @@ def get_base_data(data_type, conn):
         date = (datetime.now()+timedelta(days=-1)).strftime('%F')  # 取当天的不一定及时更新，先尝试前一天
         rs = bs.query_all_stock(date)
         filename = 'all_stock'
+    
+    elif data_type == '上证50':  # 上证50成分股
+        rs = bs.query_sz50_stocks()
+        filename = 'sz50_stocks'
+        
+    elif data_type == '沪深300':  # 沪深300成分股
+        rs = bs.query_hs300_stocks()
+        filename = 'hs300_stocks'
+        
+    elif data_type == '中证500':  # 中证500成分股
+        rs = bs.query_zz500_stocks()
+        filename = 'zz500_stocks'
         
     result = data_loading.re_get_row_data(rs)
     #result.to_csv(f"{path}/data/{filename}.csv", encoding="gbk", index=False)
